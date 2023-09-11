@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+	<head>
+		<title>WebGL Gaussian Splat Viewer</title>
+		<meta charset="utf-8" />
+		<meta
+			name="viewport"
+			content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no"
+		/>
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta
+			name="apple-mobile-web-app-status-bar-style"
+			content="black-translucent"
+		/>
+		<style>
+			body {
+				overflow: hidden;
+				margin: 0;
+				height: 100vh;
+				width: 100vw;
+				touch-action: none;
+				font-family: sans-serif;
+				background: black;
+    			text-shadow: 0 0 3px black;
+			}
+			a, body {
+				color: white;
+			}
+			#info {
+				z-index: 100;
+				position: absolute;
+				top: 10px;
+				left: 10px;
+			}
+			h3 {
+				margin: 5px 0;
+			}
+			p {
+				margin: 5px 0;
+				font-size: small;
+			}
+
+			.cube-wrapper {
+				transform-style: preserve-3d;
+			}
+
+			.cube {
+				transform-style: preserve-3d;
+				transform: rotateX(45deg) rotateZ(45deg);
+				animation: rotation 2s infinite;
+			}
+
+			.cube-faces {
+				transform-style: preserve-3d;
+				height: 80px;
+				width: 80px;
+				position: relative;
+				transform-origin: 0 0;
+				transform: translateX(0) translateY(0) translateZ(-40px);
+			}
+
+			.cube-face {
+				position: absolute;
+				inset: 0;
+				background: #0017ff;
+				border: solid 1px #ffffff;
+			}
+			.cube-face.top {
+				transform: translateZ(80px);
+			}
+			.cube-face.front {
+				transform-origin: 0 50%;
+				transform: rotateY(-90deg);
+			}
+			.cube-face.back {
+				transform-origin: 0 50%;
+				transform: rotateY(-90deg) translateZ(-80px);
+			}
+			.cube-face.right {
+				transform-origin: 50% 0;
+				transform: rotateX(-90deg) translateY(-80px);
+			}
+			.cube-face.left {
+				transform-origin: 50% 0;
+				transform: rotateX(-90deg) translateY(-80px) translateZ(80px);
+			}
+
+			@keyframes rotation {
+				0% {
+					transform: rotateX(45deg) rotateY(0) rotateZ(45deg);
+					animation-timing-function: cubic-bezier(
+						0.17,
+						0.84,
+						0.44,
+						1
+					);
+				}
+				50% {
+					transform: rotateX(45deg) rotateY(0) rotateZ(225deg);
+					animation-timing-function: cubic-bezier(
+						0.76,
+						0.05,
+						0.86,
+						0.06
+					);
+				}
+				100% {
+					transform: rotateX(45deg) rotateY(0) rotateZ(405deg);
+					animation-timing-function: cubic-bezier(
+						0.17,
+						0.84,
+						0.44,
+						1
+					);
+				}
+			}
+
+			.scene,
+			#message {
+				position: absolute;
+				display: flex;
+				top: 0;
+				right: 0;
+				left: 0;
+				bottom: 0;
+				z-index: 2;
+				height: 100%;
+				width: 100%;
+				align-items: center;
+				justify-content: center;
+			}
+			#message {
+				font-weight: bold;
+				font-size: large;
+				color: red;
+			}
+
+			#progress {
+				position: absolute;
+				top: 0;
+				height: 5px;
+				background: blue;
+				z-index: 99;
+				transition: width 0.1s ease-in-out;
+			}
+		</style>
+	</head>
+	<body>
+		<div id="info">
+			<h3>WebGL 3D Gaussian Splat Viewer</h3>
+			<p>Use mouse or arrow keys to navigate.</p>
+			<small>
+				By <a href="https://twitter.com/antimatter15">Kevin Kwok</a>.
+				Code on
+				<a href="https://github.com/antimatter15/splat">Github</a
+				>.
+			</small>
+		</div>
+
+		<div id="progress"></div>
+
+		<div id="message"></div>
+		<div class="scene" id="spinner">
+			<div class="cube-wrapper">
+				<div class="cube">
+					<div class="cube-faces">
+						<div class="cube-face bottom"></div>
+						<div class="cube-face top"></div>
+						<div class="cube-face left"></div>
+						<div class="cube-face right"></div>
+						<div class="cube-face back"></div>
+						<div class="cube-face front"></div>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<script src="main.js"></script>
+	</body>
+</html>
