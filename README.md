@@ -22,8 +22,19 @@ https://github.com/antimatter15/splat/assets/30054/6534558e-5ddd-4ca5-a4ba-48d7b
 ## other features
 
 - press `v` to save the current view coordinates to the url
-- open custom `.splat` files by adding a `url` param to a CORS-enabled URL (like [this](https://antimatter15.com/splat/?url=plush.splat#[0.95,0.19,-0.23,0,-0.16,0.98,0.12,0,0.24,-0.08,0.97,0,-0.33,-1.52,1.53,1]))
+- open custom `.splat` files by adding a `url` param to a CORS-enabled URL
 - drag and drop a `.ply` file which has been processed with the 3d gaussian splatting software onto the page and it will automatically convert the file to the `.splat` format
+
+## examples
+
+note that as long as your `.splat` file is hosted in a CORS-accessible way, you can open it with the `url` field. 
+
+- https://antimatter15.com/splat/?url=plush.splat#[0.95,0.19,-0.23,0,-0.16,0.98,0.12,0,0.24,-0.08,0.97,0,-0.33,-1.52,1.53,1]
+- https://antimatter15.com/splat/?url=truck.splat
+- https://antimatter15.com/splat/?url=garden.splat
+- https://antimatter15.com/splat/?url=treehill.splat
+- https://antimatter15.com/splat/?url=stump.splat#[-0.86,-0.23,0.45,0,0.27,0.54,0.8,0,-0.43,0.81,-0.4,0,0.92,-2.02,4.1,1]
+- https://antimatter15.com/splat/?url=bicycle.splat
 
 
 ## notes
