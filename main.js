@@ -482,9 +482,6 @@ function createWorker(self) {
 			position[2] = attrs.z;
 
 			if (types["f_dc_0"]) {
-				// rgba[0] = (1 / (1 + Math.exp(-attrs.f_dc_0))) * 255;
-				// rgba[1] = (1 / (1 + Math.exp(-attrs.f_dc_1))) * 255;
-				// rgba[2] = (1 / (1 + Math.exp(-attrs.f_dc_2))) * 255;
 				const SH_C0 = 0.28209479177387814;
 				rgba[0] = (0.5 + SH_C0 * attrs.f_dc_0) * 255;
 				rgba[1] = (0.5 + SH_C0 * attrs.f_dc_1) * 255;
@@ -539,31 +536,24 @@ function createWorker(self) {
 }
 
 const vertexShaderSource = `
-    precision mediump float;
-  attribute vec2 position;
+precision mediump float;
+attribute vec2 position;
 
-  attribute vec4 color;
-  attribute vec4 quat;
-  attribute vec3 scale;
-  attribute vec3 center;
+attribute vec4 color;
+attribute vec4 quat;
+attribute vec3 scale;
+attribute vec3 center;
 
-  uniform mat4 projection, view;
-  uniform vec2 focal;
+uniform mat4 projection, view;
+uniform vec2 focal;
 
-  varying vec4 vColor;
-  varying vec3 vConic;
-  varying vec2 vCenter;
-  varying vec2 vPosition;
-  uniform vec2 viewport;
+varying vec4 vColor;
+varying vec3 vConic;
+varying vec2 vCenter;
+varying vec2 vPosition;
+uniform vec2 viewport;
 
-  mat3 transpose(mat3 m) {
-    return mat3(
-        m[0][0], m[1][0], m[2][0],
-        m[0][1], m[1][1], m[2][1],
-        m[0][2], m[1][2], m[2][2]
-    );
-  }
-
+mat3 transpose(mat3 m) { return mat3(m[0][0], m[1][0], m[2][0], m[0][1], m[1][1], m[2][1], m[0][2], m[1][2], m[2][2]); }
 
 mat3 compute_cov3d(vec3 scale, vec4 rot) {
     mat3 S = mat3(
@@ -596,7 +586,7 @@ vec3 compute_cov2d(vec3 center, vec3 scale, vec4 rot){
     return vec3(cov[0][0] + 0.3, cov[0][1], cov[1][1] + 0.3);
 }
 
-  void main () {
+void main () {
     vec4 camspace = view * vec4(center, 1);
     vec4 pos2d = projection * mat4(1,0,0,0,0,-1,0,0,0,0,1,0,0,0,0,1) * camspace;
 
@@ -615,31 +605,29 @@ vec3 compute_cov2d(vec3 center, vec3 scale, vec4 rot){
 
     vPosition = vec2(vCenter + position.x * (position.y < 0.0 ? v1 : v2) / viewport);
     gl_Position = vec4(vPosition, pos2d.z / pos2d.w, 1);
-
-  }
-  `;
+}
+`;
 
 const fragmentShaderSource = `
-    precision mediump float;
+precision mediump float;
 
-  varying vec4 vColor;
-  varying vec3 vConic;
-  varying vec2 vCenter;
-  uniform vec2 viewport;
-  uniform vec2 focal;
+varying vec4 vColor;
+varying vec3 vConic;
+varying vec2 vCenter;
+uniform vec2 viewport;
+uniform vec2 focal;
 
-  void main () {    
-    vec2 d = (vCenter - 2.0 * (gl_FragCoord.xy/viewport - vec2(0.5, 0.5))) * viewport * 0.5;
-    float power = -0.5 * (vConic.x * d.x * d.x + vConic.z * d.y * d.y) - vConic.y * d.x * d.y;
-    if (power > 0.0) discard;
-    float alpha = min(0.99, vColor.a * exp(power));
-    if(alpha < 0.02) discard;
+void main () {    
+	vec2 d = (vCenter - 2.0 * (gl_FragCoord.xy/viewport - vec2(0.5, 0.5))) * viewport * 0.5;
+	float power = -0.5 * (vConic.x * d.x * d.x + vConic.z * d.y * d.y) - vConic.y * d.x * d.y;
+	if (power > 0.0) discard;
+	float alpha = min(0.99, vColor.a * exp(power));
+	if(alpha < 0.02) discard;
 
-    gl_FragColor = vec4(alpha * vColor.rgb, alpha);
-  }
-  `;
+	gl_FragColor = vec4(alpha * vColor.rgb, alpha);
+}
+`;
 
-// let viewMatrix = getViewMatrix(camera);
 let defaultViewMatrix = [
 	0.47, 0.04, 0.88, 0, -0.11, 0.99, 0.02, 0, -0.88, -0.11, 0.47, 0, 0.07,
 	0.03, 6.55, 1,
@@ -650,7 +638,7 @@ async function main() {
 	let carousel = true;
 	const params = new URLSearchParams(location.search);
 	try {
-		viewMatrix = JSON.parse(location.hash.slice(1));
+		viewMatrix = JSON.parse(decodeURIComponent(location.hash.slice(1)));
 		carousel = false;
 	} catch (err) {}
 	const url = new URL(
@@ -663,7 +651,7 @@ async function main() {
 	});
 	console.log(req);
 	if (req.status != 200)
-		throw new Error("Unable to load " + req.url + ": " + req.statusText);
+		throw new Error(req.status + " Unable to load " + req.url);
 
 	const rowLength = 3 * 4 + 3 * 4 + 4 + 4;
 	const reader = req.body.getReader();
@@ -998,6 +986,7 @@ async function main() {
 	let lastFrame = 0;
 	let avgFps = 0;
 	let start = Date.now() + 2000;
+
 	const frame = (now) => {
 		let inv = invert4(viewMatrix);
 		// let preY = inv[13];
@@ -1045,15 +1034,7 @@ async function main() {
 
 		if (vertexCount > 0) {
 			document.getElementById("spinner").style.display = "none";
-
 			gl.uniformMatrix4fv(u_view, false, actualViewMatrix);
-
-			// gl.clearColor(0.0, 0.0, 0.0, 1.0); // Set the clear color to black with full opacity
-			// gl.clear(gl.COLOR_BUFFER_BIT);
-
-			// gl.clearDepth(100000.0);
-			// gl.clear(gl.DEPTH_BUFFER_BIT);
-
 			ext.drawArraysInstancedANGLE(gl.TRIANGLE_STRIP, 0, 4, vertexCount);
 		} else {
 			gl.clear(gl.COLOR_BUFFER_BIT);
@@ -1065,9 +1046,7 @@ async function main() {
 		} else {
 			document.getElementById("progress").style.display = "none";
 		}
-		fps.innerText =
-			Math.round(avgFps) +
-			" fps";
+		fps.innerText = Math.round(avgFps) + " fps";
 		lastFrame = now;
 		requestAnimationFrame(frame);
 	};
@@ -1118,26 +1097,18 @@ async function main() {
 
 	window.addEventListener("hashchange", (e) => {
 		try {
-			viewMatrix = JSON.parse(location.hash.slice(1));
+			viewMatrix = JSON.parse(decodeURIComponent(location.hash.slice(1)));
 			carousel = false;
 		} catch (err) {}
 	});
 
-	document.addEventListener("dragenter", (e) => {
+	const preventDefault = (e) => {
 		e.preventDefault();
 		e.stopPropagation();
-	});
-
-	document.addEventListener("dragover", (e) => {
-		e.preventDefault();
-		e.stopPropagation();
-	});
-
-	document.addEventListener("dragleave", (e) => {
-		e.preventDefault();
-		e.stopPropagation();
-	});
-
+	}
+	document.addEventListener("dragenter", preventDefault);
+	document.addEventListener("dragover", preventDefault);
+	document.addEventListener("dragleave", preventDefault);
 	document.addEventListener("drop", (e) => {
 		e.preventDefault();
 		e.stopPropagation();
