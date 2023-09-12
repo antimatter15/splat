@@ -4,7 +4,11 @@ This is a WebGL implementation of a real-time renderer for [3D Gaussian Splattin
 
 You can [try it out here](https://antimatter15.com/splat/).
 
-https://github.com/antimatter15/splat/assets/30054/6534558e-5ddd-4ca5-a4ba-48d7b7c72af2
+
+
+https://github.com/antimatter15/splat/assets/30054/878d5d34-e0a7-4336-85df-111ff22daf4b
+
+
 
 ## controls
 
@@ -60,6 +64,7 @@ note that as long as your `.splat` file is hosted in a CORS-accessible way, you 
 - https://antimatter15.com/splat/?url=treehill.splat
 - https://antimatter15.com/splat/?url=stump.splat#[-0.86,-0.23,0.45,0,0.27,0.54,0.8,0,-0.43,0.81,-0.4,0,0.92,-2.02,4.1,1]
 - https://antimatter15.com/splat/?url=bicycle.splat
+- https://antimatter15.com/splat/?url=https://media.reshot.ai/models/nike_next/model.splat#[0.95,0.16,-0.26,0,-0.16,0.99,0.01,0,0.26,0.03,0.97,0,0.01,-1.96,2.82,1]
 
 ## notes
 
