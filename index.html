@@ -18,7 +18,6 @@
 				margin: 0;
 				height: 100vh;
 				width: 100vw;
-				touch-action: none;
 				font-family: sans-serif;
 				background: black;
     			text-shadow: 0 0 3px black;
@@ -133,6 +132,11 @@
 				font-weight: bold;
 				font-size: large;
 				color: red;
+				pointer-events: none;
+			}
+
+			details {
+				font-size: small;
 			}
 
 			#progress {
@@ -143,18 +147,81 @@
 				z-index: 99;
 				transition: width 0.1s ease-in-out;
 			}
+
+			#quality {
+				position: absolute;
+				bottom: 10px;
+				z-index: 999;
+				right: 10px;
+			}
+
+			#canvas {
+				display: block;
+				position: absolute;
+				top: 0;
+				left: 0;
+				width: 100%;
+				height: 100%;
+				touch-action: none;
+			}
+
+			#instructions {
+				background: rgba(0,0,0,0.6);
+				white-space: pre-wrap;
+				padding: 10px;
+				border-radius: 10px;
+				font-size: x-small;
+			}
 		</style>
 	</head>
 	<body>
 		<div id="info">
 			<h3>WebGL 3D Gaussian Splat Viewer</h3>
-			<p>Use mouse or arrow keys to navigate.</p>
+			<p>
 			<small>
 				By <a href="https://twitter.com/antimatter15">Kevin Kwok</a>.
 				Code on
 				<a href="https://github.com/antimatter15/splat">Github</a
 				>.
 			</small>
+		</p>
+
+			<details>
+			<summary>Use mouse or arrow keys to navigate.</summary>
+
+<div id="instructions">movement (arrow keys)
+- left/right arrow keys to strafe side to side
+- up/down arrow keys to move forward/back
+- space to jump
+
+camera angle (wasd)
+- a/d to turn camera left/right
+- w/s to tilt camera up/down
+- q/e to roll camera counterclockwise/clockwise
+
+trackpad
+- scroll up/down/left/right to orbit
+- pinch to move forward/back
+- ctrl key + scroll to move forward/back
+- shift + scroll to move up/down or strafe
+
+mouse
+- click and drag to orbit
+- right click (or ctrl/cmd key) and drag up/down to move
+
+touch (mobile)
+- one finger to orbit
+- two finger pinch to move forward/back
+- two finger rotate to rotate camera clockwise/counterclockwise
+- two finger pan to move side-to-side and up-down
+
+other
+- press 0-9 to switch to one of the pre-loaded camera views
+- press p to resume default animation
+</div>
+
+		</details>
+			
 		</div>
 
 		<div id="progress"></div>
@@ -174,7 +241,11 @@
 				</div>
 			</div>
 		</div>
+		<canvas id="canvas"></canvas>
 
-		<script src="main.js"></script>
+		<div id="quality">
+			<span id="fps"></span>
+		</div>
+		<script src="main.js?"></script>
 	</body>
 </html>

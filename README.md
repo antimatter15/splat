@@ -8,16 +8,40 @@ https://github.com/antimatter15/splat/assets/30054/6534558e-5ddd-4ca5-a4ba-48d7b
 
 ## controls
 
-- left and right arrows to rotate left and right
-- up and down to move forward and back
-- space to jump
+movement (arrow keys)
+
+- left/right arrow keys to strafe side to side
+- up/down arrow keys to move forward/back
+- `space` to jump
+
+camera angle (wasd)
+
+- `a`/`d` to turn camera left/right
 - `w`/`s` to tilt camera up/down
-- `a`/`d` to strafe left and right
-- `q`/`e` to tilt camera left/right
-- drag left/right with mouse to rotate left and right
-- drag up/down with mouse to move forward and back
-- right click and drag to move up/down and left/right
+- `q`/`e` to roll camera counterclockwise/clockwise
+
+trackpad
+- scroll up/down to orbit down
+- scroll left/right to orbit left/right
+- pinch to move forward/back
+- ctrl key + scroll up/down to move forward/back
+- shift + scroll up/down to move up/down
+- shift + scroll left/right to strafe side to side
+
+mouse
+- click and drag to orbit
+- right click (or ctrl/cmd key) and drag up/down to move forward/back
+- right click (or ctrl/cmd key) and drag left/right to strafe side to side
+
+touch (mobile)
+- one finger to orbit
+- two finger pinch to move forward/back
+- two finger rotate to rotate camera clockwise/counterclockwise
+- two finger pan to move side-to-side and up-down
+
+other
 - press 0-9 to switch to one of the pre-loaded camera views
+- press `p` to resume default animation
 
 ## other features
 

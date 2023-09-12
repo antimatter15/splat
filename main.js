@@ -642,6 +642,8 @@ async function main() {
 		carousel = false;
 	} catch (err) {}
 	const url = new URL(
+		// "nike.splat",
+		// location.href,
 		params.get("url") || "train.splat",
 		"https://antimatter15.com/splat-data/",
 	);
@@ -657,6 +659,9 @@ async function main() {
 	const reader = req.body.getReader();
 	let splatData = new Uint8Array(req.headers.get("content-length"));
 
+	const downsample = splatData.length / rowLength > 500000 ? 2 : 1;
+	console.log(splatData.length / rowLength, downsample);
+
 	const worker = new Worker(
 		URL.createObjectURL(
 			new Blob(["(", createWorker.toString(), ")(self)"], {
@@ -665,25 +670,15 @@ async function main() {
 		),
 	);
 
-	const canvas = document.createElement("canvas");
-	canvas.width = innerWidth / 2;
-	canvas.height = innerHeight / 2;
-	canvas.style.position = "absolute";
-	canvas.style.top = 0;
-	canvas.style.left = 0;
-	canvas.style.width = "100%";
-	canvas.style.height = "100%";
-	document.body.appendChild(canvas);
+	const canvas = document.getElementById("canvas");
+	canvas.width = innerWidth / downsample;
+	canvas.height = innerHeight / downsample;
 
-	const fps = document.createElement("div");
-	fps.style.position = "absolute";
-	fps.style.bottom = "10px";
-	fps.style.right = "10px";
-	document.body.appendChild(fps);
+	const fps = document.getElementById("fps");
 
 	let projectionMatrix = getProjectionMatrix(
-		camera.fx / 2,
-		camera.fy / 2,
+		camera.fx / downsample,
+		camera.fy / downsample,
 		canvas.width,
 		canvas.height,
 	);
@@ -738,7 +733,10 @@ async function main() {
 
 	// focal
 	const u_focal = gl.getUniformLocation(program, "focal");
-	gl.uniform2fv(u_focal, new Float32Array([camera.fx / 2, camera.fy / 2]));
+	gl.uniform2fv(
+		u_focal,
+		new Float32Array([camera.fx / downsample, camera.fy / downsample]),
+	);
 
 	// view
 	const u_view = gl.getUniformLocation(program, "view");
@@ -826,6 +824,7 @@ async function main() {
 	let activeKeys = [];
 
 	window.addEventListener("keydown", (e) => {
+		if (document.activeElement != document.body) return;
 		carousel = false;
 		if (!activeKeys.includes(e.key)) activeKeys.push(e.key);
 		if (/\d/.test(e.key)) {
@@ -857,52 +856,66 @@ async function main() {
 					: e.deltaMode == 2
 					? innerHeight
 					: 1;
-			const dy = e.deltaY * scale;
 			let inv = invert4(viewMatrix);
-			inv = translate4(inv, 0, 0, (-5 * dy) / innerHeight);
+			if (e.shiftKey) {
+				inv = translate4(
+					inv,
+					(e.deltaX * scale) / innerWidth,
+					(e.deltaY * scale) / innerHeight,
+					0,
+				);
+			} else if (e.ctrlKey || e.metaKey) {
+				// inv = rotate4(inv,  (e.deltaX * scale) / innerWidth,  0, 0, 1);
+				// inv = translate4(inv,  0, (e.deltaY * scale) / innerHeight, 0);
+
+				inv = translate4(
+					inv,
+					0,
+					0,
+					(-10 * (e.deltaY * scale)) / innerHeight,
+				);
+			} else {
+				let d = 4;
+				inv = translate4(inv, 0, 0, d);
+				inv = rotate4(inv, -(e.deltaX * scale) / innerWidth, 0, 1, 0);
+				inv = rotate4(inv, (e.deltaY * scale) / innerHeight, 1, 0, 0);
+				inv = translate4(inv, 0, 0, -d);
+
+			}
+
 			viewMatrix = invert4(inv);
 		},
 		{ passive: false },
 	);
 
 	let startX, startY, down;
-	document.addEventListener("mousedown", (e) => {
+	canvas.addEventListener("mousedown", (e) => {
 		carousel = false;
 		e.preventDefault();
 		startX = e.clientX;
 		startY = e.clientY;
-		down = 1;
+		down = e.ctrlKey || e.metaKey ? 2 : 1;
 	});
-	document.addEventListener("contextmenu", (e) => {
+	canvas.addEventListener("contextmenu", (e) => {
 		carousel = false;
 		e.preventDefault();
 		startX = e.clientX;
 		startY = e.clientY;
 		down = 2;
 	});
-	document.addEventListener("mousemove", (e) => {
+	canvas.addEventListener("mousemove", (e) => {
 		e.preventDefault();
 		if (down == 1) {
 			let inv = invert4(viewMatrix);
-			inv = rotate4(
-				inv,
-				(-2 * (e.clientX - startX)) / innerWidth,
-				0,
-				1,
-				0,
-			);
-			inv = translate4(
-				inv,
-				(5 * (e.clientX - startX)) / innerWidth,
-				0,
-				0,
-			);
-			inv = translate4(
-				inv,
-				0,
-				0,
-				(10 * (e.clientY - startY)) / innerHeight,
-			);
+			let dx = 5 * (e.clientX - startX) / innerWidth;
+			let dy = 5 * (e.clientY - startY) / innerHeight;
+			let d = 4;
+			inv = translate4(inv, 0, 0, d);
+			// inv = translate4(inv,  -x, -y, -z);
+			// inv = translate4(inv,  x, y, z);
+			inv = rotate4(inv, dx, 0, 1, 0);
+			inv = rotate4(inv, -dy, 1, 0, 0);
+			inv = translate4(inv, 0, 0, -d);
 			viewMatrix = invert4(inv);
 
 			startX = e.clientX;
@@ -913,8 +926,8 @@ async function main() {
 			inv = translate4(
 				inv,
 				(-10 * (e.clientX - startX)) / innerWidth,
-				(-10 * (e.clientY - startY)) / innerHeight,
 				0,
+				(10 * (e.clientY - startY)) / innerHeight,
 			);
 			viewMatrix = invert4(inv);
 
@@ -922,14 +935,16 @@ async function main() {
 			startY = e.clientY;
 		}
 	});
-	document.addEventListener("mouseup", (e) => {
+	canvas.addEventListener("mouseup", (e) => {
 		e.preventDefault();
 		down = false;
 		startX = 0;
 		startY = 0;
 	});
 
-	document.addEventListener(
+	let altX = 0,
+		altY = 0;
+	canvas.addEventListener(
 		"touchstart",
 		(e) => {
 			e.preventDefault();
@@ -938,38 +953,79 @@ async function main() {
 				startX = e.touches[0].clientX;
 				startY = e.touches[0].clientY;
 				down = 1;
+			} else if (e.touches.length === 2) {
+				// console.log('beep')
+				carousel = false;
+				startX = e.touches[0].clientX;
+				altX = e.touches[1].clientX;
+				startY = e.touches[0].clientY;
+				altY = e.touches[1].clientY;
+				down = 1;
 			}
 		},
 		{ passive: false },
 	);
-	document.addEventListener(
+	canvas.addEventListener(
 		"touchmove",
 		(e) => {
 			e.preventDefault();
 			if (e.touches.length === 1 && down) {
 				let inv = invert4(viewMatrix);
-				inv = rotate4(
-					inv,
-					(-0.6 * (e.touches[0].clientX - startX)) / innerWidth,
-					0,
-					1,
-					0,
-				);
-				inv = translate4(
-					inv,
-					0,
-					0,
-					(25 * (e.touches[0].clientY - startY)) / innerHeight,
-				);
+				let dx = (4 * (e.touches[0].clientX - startX)) / innerWidth;
+				let dy = (4 * (e.touches[0].clientY - startY)) / innerHeight;
+
+				let d = 4;
+				inv = translate4(inv, 0, 0, d);
+				// inv = translate4(inv,  -x, -y, -z);
+				// inv = translate4(inv,  x, y, z);
+				inv = rotate4(inv, dx, 0, 1, 0);
+				inv = rotate4(inv, -dy, 1, 0, 0);
+				inv = translate4(inv, 0, 0, -d);
+
 				viewMatrix = invert4(inv);
 
 				startX = e.touches[0].clientX;
 				startY = e.touches[0].clientY;
+			} else if (e.touches.length === 2) {
+				// alert('beep')
+				const dtheta =
+					Math.atan2(startY - altY, startX - altX) -
+					Math.atan2(
+						e.touches[0].clientY - e.touches[1].clientY,
+						e.touches[0].clientX - e.touches[1].clientX,
+					);
+				const dscale =
+					Math.hypot(startX - altX, startY - altY) /
+					Math.hypot(
+						e.touches[0].clientX - e.touches[1].clientX,
+						e.touches[0].clientY - e.touches[1].clientY,
+					);
+				const dx =
+					(e.touches[0].clientX +
+						e.touches[1].clientX -
+						(startX + altX)) /
+					2;
+				const dy =
+					(e.touches[0].clientY +
+						e.touches[1].clientY -
+						(startY + altY)) /
+					2;
+				let inv = invert4(viewMatrix);
+				// inv = translate4(inv,  0, 0, d);
+				inv = rotate4(inv, dtheta, 0, 0, 1);
+				inv = translate4(inv, -dx / innerWidth, -dy / innerHeight, 1 - dscale);
+
+				viewMatrix = invert4(inv);
+
+				startX = e.touches[0].clientX;
+				altX = e.touches[1].clientX;
+				startY = e.touches[0].clientY;
+				altY = e.touches[1].clientY;
 			}
 		},
 		{ passive: false },
 	);
-	document.addEventListener(
+	canvas.addEventListener(
 		"touchend",
 		(e) => {
 			e.preventDefault();
@@ -985,7 +1041,7 @@ async function main() {
 
 	let lastFrame = 0;
 	let avgFps = 0;
-	let start = Date.now() + 2000;
+	let start = 0;
 
 	const frame = (now) => {
 		let inv = invert4(viewMatrix);
@@ -993,11 +1049,13 @@ async function main() {
 		if (activeKeys.includes("ArrowUp")) inv = translate4(inv, 0, 0, 0.1);
 		if (activeKeys.includes("ArrowDown")) inv = translate4(inv, 0, 0, -0.1);
 		if (activeKeys.includes("ArrowLeft"))
-			inv = rotate4(inv, -0.01, 0, 1, 0);
+			inv = translate4(inv, -0.03, 0, 0);
+		//
 		if (activeKeys.includes("ArrowRight"))
-			inv = rotate4(inv, 0.01, 0, 1, 0);
-		if (activeKeys.includes("a")) inv = translate4(inv, -0.02, 0, 0);
-		if (activeKeys.includes("d")) inv = translate4(inv, 0.02, 0, 0);
+			inv = translate4(inv, 0.03, 0, 0);
+		// inv = rotate4(inv, 0.01, 0, 1, 0);
+		if (activeKeys.includes("a")) inv = rotate4(inv, -0.01, 0, 1, 0);
+		if (activeKeys.includes("d")) inv = rotate4(inv, 0.01, 0, 1, 0);
 		if (activeKeys.includes("q")) inv = rotate4(inv, 0.01, 0, 0, 1);
 		if (activeKeys.includes("e")) inv = rotate4(inv, -0.01, 0, 0, 1);
 		if (activeKeys.includes("w")) inv = rotate4(inv, 0.005, 1, 0, 0);
@@ -1009,8 +1067,8 @@ async function main() {
 			let inv = invert4(defaultViewMatrix);
 
 			const t = Math.sin((Date.now() - start) / 5000);
-			inv = translate4(inv, 2.5 * t, 0, 10 * (1 - Math.cos(t)));
-			inv = rotate4(inv, -0.4 * t, 0, 1, 0);
+			inv = translate4(inv, 2.5 * t, 0, 6 * (1 - Math.cos(t)));
+			inv = rotate4(inv, -0.6 * t, 0, 1, 0);
 
 			viewMatrix = invert4(inv);
 		}
@@ -1023,7 +1081,7 @@ async function main() {
 
 		let inv2 = invert4(viewMatrix);
 		inv2[13] -= jumpDelta;
-		inv2 = rotate4(inv2, -0.2 * jumpDelta, 1, 0, 0);
+		inv2 = rotate4(inv2, -0.1 * jumpDelta, 1, 0, 0);
 		let actualViewMatrix = invert4(inv2);
 
 		const viewProj = multiply4(projectionMatrix, actualViewMatrix);
@@ -1039,6 +1097,7 @@ async function main() {
 		} else {
 			gl.clear(gl.COLOR_BUFFER_BIT);
 			document.getElementById("spinner").style.display = "";
+			start = Date.now() + 2000
 		}
 		const progress = (100 * vertexCount) / (splatData.length / rowLength);
 		if (progress < 100) {
@@ -1060,8 +1119,8 @@ async function main() {
 				cameras = JSON.parse(fr.result);
 				viewMatrix = getViewMatrix(cameras[0]);
 				projectionMatrix = getProjectionMatrix(
-					camera.fx / 2,
-					camera.fy / 2,
+					camera.fx / downsample,
+					camera.fy / downsample,
 					canvas.width,
 					canvas.height,
 				);
@@ -1105,7 +1164,7 @@ async function main() {
 	const preventDefault = (e) => {
 		e.preventDefault();
 		e.stopPropagation();
-	}
+	};
 	document.addEventListener("dragenter", preventDefault);
 	document.addEventListener("dragover", preventDefault);
 	document.addEventListener("dragleave", preventDefault);
