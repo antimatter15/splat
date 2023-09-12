@@ -1060,6 +1060,15 @@ async function main() {
 		if (activeKeys.includes("e")) inv = rotate4(inv, -0.01, 0, 0, 1);
 		if (activeKeys.includes("w")) inv = rotate4(inv, 0.005, 1, 0, 0);
 		if (activeKeys.includes("s")) inv = rotate4(inv, -0.005, 1, 0, 0);
+
+		if(['j', 'k', 'l', 'i'].some(k => activeKeys.includes(k))) {
+			let d = 4;
+			inv = translate4(inv, 0, 0, d);
+			inv = rotate4(inv, activeKeys.includes('j') ? -0.05: activeKeys.includes('l') ? 0.05 : 0, 0, 1, 0);
+			inv = rotate4(inv, activeKeys.includes('i') ? 0.05 : activeKeys.includes('k') ? -0.05 : 0, 1, 0, 0);
+			inv = translate4(inv, 0, 0, -d);
+		}
+		
 		// inv[13] = preY;
 		viewMatrix = invert4(inv);
 

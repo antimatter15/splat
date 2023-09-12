@@ -19,6 +19,7 @@ camera angle (wasd)
 - `a`/`d` to turn camera left/right
 - `w`/`s` to tilt camera up/down
 - `q`/`e` to roll camera counterclockwise/clockwise
+- `i`/`k` and `j`/`l` to orbit
 
 trackpad
 - scroll up/down to orbit down
