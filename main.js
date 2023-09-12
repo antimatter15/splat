@@ -867,13 +867,14 @@ async function main() {
 			} else if (e.ctrlKey || e.metaKey) {
 				// inv = rotate4(inv,  (e.deltaX * scale) / innerWidth,  0, 0, 1);
 				// inv = translate4(inv,  0, (e.deltaY * scale) / innerHeight, 0);
-
+				let preY = inv[13];
 				inv = translate4(
 					inv,
 					0,
 					0,
 					(-10 * (e.deltaY * scale)) / innerHeight,
 				);
+				inv[13] = preY
 			} else {
 				let d = 4;
 				inv = translate4(inv, 0, 0, d);
@@ -923,12 +924,14 @@ async function main() {
 		} else if (down == 2) {
 			let inv = invert4(viewMatrix);
 			// inv = rotateY(inv, );
+			let preY = inv[13];
 			inv = translate4(
 				inv,
 				(-10 * (e.clientX - startX)) / innerWidth,
 				0,
 				(10 * (e.clientY - startY)) / innerHeight,
 			);
+			inv[13] = preY
 			viewMatrix = invert4(inv);
 
 			startX = e.clientX;
@@ -1013,7 +1016,12 @@ async function main() {
 				let inv = invert4(viewMatrix);
 				// inv = translate4(inv,  0, 0, d);
 				inv = rotate4(inv, dtheta, 0, 0, 1);
-				inv = translate4(inv, -dx / innerWidth, -dy / innerHeight, 1 - dscale);
+
+				inv = translate4(inv, -dx / innerWidth, -dy / innerHeight, 0);
+
+				let preY = inv[13];
+				inv = translate4(inv, 0, 0, 10 * (1 - dscale));
+				inv[13] = preY
 
 				viewMatrix = invert4(inv);
 
@@ -1045,9 +1053,17 @@ async function main() {
 
 	const frame = (now) => {
 		let inv = invert4(viewMatrix);
-		// let preY = inv[13];
-		if (activeKeys.includes("ArrowUp")) inv = translate4(inv, 0, 0, 0.1);
-		if (activeKeys.includes("ArrowDown")) inv = translate4(inv, 0, 0, -0.1);
+		
+		if (activeKeys.includes("ArrowUp")){
+			let preY = inv[13];
+			inv = translate4(inv, 0, 0, 0.1);
+			inv[13] = preY
+		}
+		if (activeKeys.includes("ArrowDown")){
+			let preY = inv[13];
+			inv = translate4(inv, 0, 0, -0.1);
+			inv[13] = preY
+		}
 		if (activeKeys.includes("ArrowLeft"))
 			inv = translate4(inv, -0.03, 0, 0);
 		//
