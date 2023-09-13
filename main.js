@@ -296,34 +296,57 @@ function createWorker(self) {
 	// RGBA - colors (uint8)
 	// IJKL - quaternion/rot (uint8)
 	const rowLength = 3 * 4 + 3 * 4 + 4 + 4;
+	let depthMix = new BigInt64Array();
+	let lastProj = [];
 
 	const runSort = (viewProj) => {
 		if (!buffer) return;
 
-		// console.time("sort");
+		
+
 		const f_buffer = new Float32Array(buffer);
 		const u_buffer = new Uint8Array(buffer);
-
-		const depthList = new Float32Array(vertexCount);
-		const depthIndex = new Uint32Array(vertexCount);
-		for (let j = 0; j < vertexCount; j++) {
-			// For some reason dividing by wumbo actually causes
-			// problems, so this is the unnormalized camera space homo
-			depthList[j] =
-				viewProj[2] * f_buffer[8 * j + 0] +
-				viewProj[6] * f_buffer[8 * j + 1] +
-				viewProj[10] * f_buffer[8 * j + 2];
-			depthIndex[j] = j;
-		}
-		depthIndex.sort((a, b) => depthList[a] - depthList[b]);
 
 		const quat = new Float32Array(4 * vertexCount);
 		const scale = new Float32Array(3 * vertexCount);
 		const center = new Float32Array(3 * vertexCount);
 		const color = new Float32Array(4 * vertexCount);
 
+		if (depthMix.length !== vertexCount) {
+			depthMix = new BigInt64Array(vertexCount);
+			const indexMix = new Uint32Array(depthMix.buffer);
+			for (let j = 0; j < vertexCount; j++) {
+				indexMix[2 * j] = j;
+			}
+		} else {
+			let dot =
+				lastProj[2] * viewProj[2] +
+				lastProj[6] * viewProj[6] +
+				lastProj[10] * viewProj[10];
+			if (Math.abs(dot - 1) < 0.01) {
+				return;
+			}
+		}
+		// console.time("sort");
+
+		const floatMix = new Float32Array(depthMix.buffer);
+		const indexMix = new Uint32Array(depthMix.buffer);
+
 		for (let j = 0; j < vertexCount; j++) {
-			const i = depthIndex[j];
+			let i = indexMix[2 * j];
+			floatMix[2 * j + 1] =
+				10000 +
+				viewProj[2] * f_buffer[8 * i + 0] +
+				viewProj[6] * f_buffer[8 * i + 1] +
+				viewProj[10] * f_buffer[8 * i + 2];
+		}
+
+		lastProj = viewProj;
+
+		depthMix.sort();
+
+		for (let j = 0; j < vertexCount; j++) {
+			const i = indexMix[2 * j];
 
 			quat[4 * j + 0] = (u_buffer[32 * i + 28 + 0] - 128) / 128;
 			quat[4 * j + 1] = (u_buffer[32 * i + 28 + 1] - 128) / 128;
@@ -344,7 +367,7 @@ function createWorker(self) {
 			scale[3 * j + 2] = f_buffer[8 * i + 3 + 2];
 		}
 
-		self.postMessage({ quat, center, color, scale }, [
+		self.postMessage({ quat, center, color, scale, viewProj }, [
 			quat.buffer,
 			center.buffer,
 			color.buffer,
@@ -792,6 +815,9 @@ async function main() {
 	gl.vertexAttribPointer(a_scale, 3, gl.FLOAT, false, 0, 0);
 	ext.vertexAttribDivisorANGLE(a_scale, 1); // Use the extension here
 
+	let lastProj = []
+	let lastData
+
 	worker.onmessage = (e) => {
 		if (e.data.buffer) {
 			splatData = new Uint8Array(e.data.buffer);
@@ -804,7 +830,10 @@ async function main() {
 			document.body.appendChild(link);
 			link.click();
 		} else {
-			let { quat, scale, center, color } = e.data;
+			let { quat, scale, center, color, viewProj } = e.data;
+			lastData = e.data;
+
+			lastProj = viewProj
 			vertexCount = quat.length / 4;
 
 			gl.bindBuffer(gl.ARRAY_BUFFER, centerBuffer);
@@ -843,9 +872,9 @@ async function main() {
 	window.addEventListener("keyup", (e) => {
 		activeKeys = activeKeys.filter((k) => k !== e.key);
 	});
-	window.addEventListener('blur', () => {
-		activeKeys = []	
-	})
+	window.addEventListener("blur", () => {
+		activeKeys = [];
+	});
 
 	window.addEventListener(
 		"wheel",
@@ -877,14 +906,13 @@ async function main() {
 					0,
 					(-10 * (e.deltaY * scale)) / innerHeight,
 				);
-				inv[13] = preY
+				inv[13] = preY;
 			} else {
 				let d = 4;
 				inv = translate4(inv, 0, 0, d);
 				inv = rotate4(inv, -(e.deltaX * scale) / innerWidth, 0, 1, 0);
 				inv = rotate4(inv, (e.deltaY * scale) / innerHeight, 1, 0, 0);
 				inv = translate4(inv, 0, 0, -d);
-
 			}
 
 			viewMatrix = invert4(inv);
@@ -912,10 +940,9 @@ async function main() {
 		e.preventDefault();
 		if (down == 1) {
 			let inv = invert4(viewMatrix);
-			let dx = 5 * (e.clientX - startX) / innerWidth;
-			let dy = 5 * (e.clientY - startY) / innerHeight;
+			let dx = (5 * (e.clientX - startX)) / innerWidth;
+			let dy = (5 * (e.clientY - startY)) / innerHeight;
 			let d = 4;
-			
 
 			inv = translate4(inv, 0, 0, d);
 			inv = rotate4(inv, dx, 0, 1, 0);
@@ -938,7 +965,7 @@ async function main() {
 				0,
 				(10 * (e.clientY - startY)) / innerHeight,
 			);
-			inv[13] = preY
+			inv[13] = preY;
 			viewMatrix = invert4(inv);
 
 			startX = e.clientX;
@@ -1028,7 +1055,7 @@ async function main() {
 
 				let preY = inv[13];
 				inv = translate4(inv, 0, 0, 3 * (1 - dscale));
-				inv[13] = preY
+				inv[13] = preY;
 
 				viewMatrix = invert4(inv);
 
@@ -1060,16 +1087,16 @@ async function main() {
 
 	const frame = (now) => {
 		let inv = invert4(viewMatrix);
-		
-		if (activeKeys.includes("ArrowUp")){
+
+		if (activeKeys.includes("ArrowUp")) {
 			let preY = inv[13];
 			inv = translate4(inv, 0, 0, 0.1);
-			inv[13] = preY
+			inv[13] = preY;
 		}
-		if (activeKeys.includes("ArrowDown")){
+		if (activeKeys.includes("ArrowDown")) {
 			let preY = inv[13];
 			inv = translate4(inv, 0, 0, -0.1);
-			inv[13] = preY
+			inv[13] = preY;
 		}
 		if (activeKeys.includes("ArrowLeft"))
 			inv = translate4(inv, -0.03, 0, 0);
@@ -1084,14 +1111,34 @@ async function main() {
 		if (activeKeys.includes("w")) inv = rotate4(inv, 0.005, 1, 0, 0);
 		if (activeKeys.includes("s")) inv = rotate4(inv, -0.005, 1, 0, 0);
 
-		if(['j', 'k', 'l', 'i'].some(k => activeKeys.includes(k))) {
+		if (["j", "k", "l", "i"].some((k) => activeKeys.includes(k))) {
 			let d = 4;
 			inv = translate4(inv, 0, 0, d);
-			inv = rotate4(inv, activeKeys.includes('j') ? -0.05: activeKeys.includes('l') ? 0.05 : 0, 0, 1, 0);
-			inv = rotate4(inv, activeKeys.includes('i') ? 0.05 : activeKeys.includes('k') ? -0.05 : 0, 1, 0, 0);
+			inv = rotate4(
+				inv,
+				activeKeys.includes("j")
+					? -0.05
+					: activeKeys.includes("l")
+					? 0.05
+					: 0,
+				0,
+				1,
+				0,
+			);
+			inv = rotate4(
+				inv,
+				activeKeys.includes("i")
+					? 0.05
+					: activeKeys.includes("k")
+					? -0.05
+					: 0,
+				1,
+				0,
+				0,
+			);
 			inv = translate4(inv, 0, 0, -d);
 		}
-		
+
 		// inv[13] = preY;
 		viewMatrix = invert4(inv);
 
@@ -1129,7 +1176,7 @@ async function main() {
 		} else {
 			gl.clear(gl.COLOR_BUFFER_BIT);
 			document.getElementById("spinner").style.display = "";
-			start = Date.now() + 2000
+			start = Date.now() + 2000;
 		}
 		const progress = (100 * vertexCount) / (splatData.length / rowLength);
 		if (progress < 100) {
