@@ -1089,14 +1089,22 @@ async function main() {
 		let inv = invert4(viewMatrix);
 
 		if (activeKeys.includes("ArrowUp")) {
-			let preY = inv[13];
-			inv = translate4(inv, 0, 0, 0.1);
-			inv[13] = preY;
+			if(activeKeys.includes("Shift")){
+				inv = translate4(inv, 0, -0.03, 0);
+			}else{
+				let preY = inv[13];
+				inv = translate4(inv, 0, 0, 0.1);
+				inv[13] = preY;
+			}
 		}
 		if (activeKeys.includes("ArrowDown")) {
-			let preY = inv[13];
-			inv = translate4(inv, 0, 0, -0.1);
-			inv[13] = preY;
+			if(activeKeys.includes("Shift")){
+				inv = translate4(inv, 0, 0.03, 0);
+			}else{
+				let preY = inv[13];
+				inv = translate4(inv, 0, 0, -0.1);
+				inv[13] = preY;
+			}
 		}
 		if (activeKeys.includes("ArrowLeft"))
 			inv = translate4(inv, -0.03, 0, 0);
