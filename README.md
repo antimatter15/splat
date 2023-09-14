@@ -1,8 +1,8 @@
 ---
 title: WebGL Gaussian Splat Viewer
 emoji: 🐋
-colorFrom: blue
-colorTo: green
+colorFrom: yellow
+colorTo: orange
 sdk: static
 pinned: true
 ---
