@@ -29,7 +29,7 @@
 				z-index: 100;
 				position: absolute;
 				top: 10px;
-				left: 10px;
+				left: 15px;
 			}
 			h3 {
 				margin: 5px 0;
@@ -137,6 +137,7 @@
 
 			details {
 				font-size: small;
+
 			}
 
 			#progress {
@@ -175,9 +176,15 @@
 			body.nohf .nohf {
 				display: none;
 			}
+			body.nohf #progress {
+				background: #ff9d0d;
+			}
 		</style>
 	</head>
 	<body>
+		<script>
+			if(location.host.includes('hf.space')) document.body.classList.add('nohf');
+		</script>
 		<div id="info">
 			<h3 class="nohf">WebGL 3D Gaussian Splat Viewer</h3>
 			<p>
@@ -250,6 +257,6 @@ other
 		<div id="quality">
 			<span id="fps"></span>
 		</div>
-		<script src="main.js?"></script>
+		<script src="main.js"></script>
 	</body>
 </html>
