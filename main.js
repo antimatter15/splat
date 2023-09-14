@@ -1291,3 +1291,6 @@ main().catch((err) => {
 	document.getElementById("spinner").style.display = "none";
 	document.getElementById("message").innerText = err.toString();
 });
+
+if(location.host.includes('hf.space')) document.body.classList.add('nohf');
+
