@@ -668,7 +668,7 @@ async function main() {
 		// "nike.splat",
 		// location.href,
 		params.get("url") || "train.splat",
-		"https://antimatter15.com/splat-data/",
+		"https://huggingface.co/cakewalk/splat-data/raw/main/",
 	);
 	const req = await fetch(url, {
 		mode: "cors", // no-cors, *cors, same-origin
