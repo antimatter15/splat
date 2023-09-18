@@ -551,7 +551,7 @@ function createWorker(self) {
 			vertexCount = e.data.vertexCount;
 		} else if (e.data.vertexCount) {
 			vertexCount = e.data.vertexCount;
-		} else if (e.data.view) {
+		} else if (e.data.view && !e.data.down) {
 			viewProj = e.data.view;
 			throttledSort();
 		}
@@ -835,18 +835,19 @@ async function main() {
 
 			lastProj = viewProj
 			vertexCount = quat.length / 4;
-
+			
+			// console.log("Pushing " + vertexCount)
 			gl.bindBuffer(gl.ARRAY_BUFFER, centerBuffer);
-			gl.bufferData(gl.ARRAY_BUFFER, center, gl.STATIC_DRAW);
+			gl.bufferData(gl.ARRAY_BUFFER, center, gl.STREAM_DRAW);
 
 			gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
-			gl.bufferData(gl.ARRAY_BUFFER, color, gl.STATIC_DRAW);
+			gl.bufferData(gl.ARRAY_BUFFER, color, gl.STREAM_DRAW);
 
 			gl.bindBuffer(gl.ARRAY_BUFFER, quatBuffer);
-			gl.bufferData(gl.ARRAY_BUFFER, quat, gl.STATIC_DRAW);
+			gl.bufferData(gl.ARRAY_BUFFER, quat, gl.STREAM_DRAW);
 
 			gl.bindBuffer(gl.ARRAY_BUFFER, scaleBuffer);
-			gl.bufferData(gl.ARRAY_BUFFER, scale, gl.STATIC_DRAW);
+			gl.bufferData(gl.ARRAY_BUFFER, scale, gl.STREAM_DRAW);
 		}
 	};
 
@@ -855,22 +856,22 @@ async function main() {
 	window.addEventListener("keydown", (e) => {
 		if (document.activeElement != document.body) return;
 		carousel = false;
-		if (!activeKeys.includes(e.key)) activeKeys.push(e.key);
-		if (/\d/.test(e.key)) {
-			viewMatrix = getViewMatrix(cameras[parseInt(e.key)]);
+		if (!activeKeys.includes(e.code)) activeKeys.push(e.code);
+		if (/\d/.test(e.code)) {
+			viewMatrix = getViewMatrix(cameras[parseInt(e.code)]);
 		}
-		if (e.key == "v") {
+		if (e.code == "KeyV") {
 			location.hash =
 				"#" +
 				JSON.stringify(
 					viewMatrix.map((k) => Math.round(k * 100) / 100),
 				);
-		} else if (e.key === "p") {
+		} else if (e.code === "KeyP") {
 			carousel = true;
 		}
 	});
 	window.addEventListener("keyup", (e) => {
-		activeKeys = activeKeys.filter((k) => k !== e.key);
+		activeKeys = activeKeys.filter((k) => k !== e.code);
 	});
 	window.addEventListener("blur", () => {
 		activeKeys = [];
@@ -920,6 +921,8 @@ async function main() {
 		{ passive: false },
 	);
 
+	let moved = false;
+	let orbited = false;
 	let startX, startY, down;
 	canvas.addEventListener("mousedown", (e) => {
 		carousel = false;
@@ -939,6 +942,7 @@ async function main() {
 	canvas.addEventListener("mousemove", (e) => {
 		e.preventDefault();
 		if (down == 1) {
+			orbited = true;
 			let inv = invert4(viewMatrix);
 			let dx = (5 * (e.clientX - startX)) / innerWidth;
 			let dy = (5 * (e.clientY - startY)) / innerHeight;
@@ -956,6 +960,7 @@ async function main() {
 			startX = e.clientX;
 			startY = e.clientY;
 		} else if (down == 2) {
+			orbited = false;
 			let inv = invert4(viewMatrix);
 			// inv = rotateY(inv, );
 			let preY = inv[13];
@@ -974,6 +979,7 @@ async function main() {
 	});
 	canvas.addEventListener("mouseup", (e) => {
 		e.preventDefault();
+		orbited = false;
 		down = false;
 		startX = 0;
 		startY = 0;
@@ -985,6 +991,7 @@ async function main() {
 		"touchstart",
 		(e) => {
 			e.preventDefault();
+			orbited = true;
 			if (e.touches.length === 1) {
 				carousel = false;
 				startX = e.touches[0].clientX;
@@ -1006,6 +1013,7 @@ async function main() {
 		"touchmove",
 		(e) => {
 			e.preventDefault();
+			orbited = true;
 			if (e.touches.length === 1 && down) {
 				let inv = invert4(viewMatrix);
 				let dx = (4 * (e.touches[0].clientX - startX)) / innerWidth;
@@ -1071,6 +1079,7 @@ async function main() {
 		"touchend",
 		(e) => {
 			e.preventDefault();
+			orbited = false;
 			down = false;
 			startX = 0;
 			startY = 0;
@@ -1087,8 +1096,10 @@ async function main() {
 
 	const frame = (now) => {
 		let inv = invert4(viewMatrix);
+		let moved_now = false
 
 		if (activeKeys.includes("ArrowUp")) {
+			moved_now = true
 			if(activeKeys.includes("Shift")){
 				inv = translate4(inv, 0, -0.03, 0);
 			}else{
@@ -1098,6 +1109,7 @@ async function main() {
 			}
 		}
 		if (activeKeys.includes("ArrowDown")) {
+			moved_now = true
 			if(activeKeys.includes("Shift")){
 				inv = translate4(inv, 0, 0.03, 0);
 			}else{
@@ -1106,27 +1118,31 @@ async function main() {
 				inv[13] = preY;
 			}
 		}
-		if (activeKeys.includes("ArrowLeft"))
+		if (activeKeys.includes("ArrowLeft")) {
+			moved_now = true
 			inv = translate4(inv, -0.03, 0, 0);
-		//
-		if (activeKeys.includes("ArrowRight"))
+		}
+		if (activeKeys.includes("ArrowRight")){
+			moved_now = true
 			inv = translate4(inv, 0.03, 0, 0);
+		}
 		// inv = rotate4(inv, 0.01, 0, 1, 0);
-		if (activeKeys.includes("a")) inv = rotate4(inv, -0.01, 0, 1, 0);
-		if (activeKeys.includes("d")) inv = rotate4(inv, 0.01, 0, 1, 0);
-		if (activeKeys.includes("q")) inv = rotate4(inv, 0.01, 0, 0, 1);
-		if (activeKeys.includes("e")) inv = rotate4(inv, -0.01, 0, 0, 1);
-		if (activeKeys.includes("w")) inv = rotate4(inv, 0.005, 1, 0, 0);
-		if (activeKeys.includes("s")) inv = rotate4(inv, -0.005, 1, 0, 0);
+		if (activeKeys.includes("KeyA")) { inv = rotate4(inv, -0.01, 0, 1, 0); moved_now = true; }
+		if (activeKeys.includes("KeyD")) { inv = rotate4(inv, 0.01, 0, 1, 0); moved_now = true; }
+		if (activeKeys.includes("KeyQ")) { inv = rotate4(inv, 0.01, 0, 0, 1); moved_now = true; }
+		if (activeKeys.includes("KeyE")) { inv = rotate4(inv, -0.01, 0, 0, 1); moved_now = true; }
+		if (activeKeys.includes("KeyW")) { inv = rotate4(inv, 0.005, 1, 0, 0); moved_now = true; }
+		if (activeKeys.includes("KeyS")) { inv = rotate4(inv, -0.005, 1, 0, 0); moved_now = true; }
 
-		if (["j", "k", "l", "i"].some((k) => activeKeys.includes(k))) {
+		if (["KeyJ", "KeyK", "KeyL", "KeyI"].some((k) => activeKeys.includes(k))) {
+			moved_now = true;
 			let d = 4;
 			inv = translate4(inv, 0, 0, d);
 			inv = rotate4(
 				inv,
-				activeKeys.includes("j")
+				activeKeys.includes("KeyJ")
 					? -0.05
-					: activeKeys.includes("l")
+					: activeKeys.includes("KeyI")
 					? 0.05
 					: 0,
 				0,
@@ -1135,9 +1151,9 @@ async function main() {
 			);
 			inv = rotate4(
 				inv,
-				activeKeys.includes("i")
+				activeKeys.includes("KeyI")
 					? 0.05
-					: activeKeys.includes("k")
+					: activeKeys.includes("KeyK")
 					? -0.05
 					: 0,
 				1,
@@ -1146,6 +1162,9 @@ async function main() {
 			);
 			inv = translate4(inv, 0, 0, -d);
 		}
+		
+		moved = moved_now
+		// console.log(moved)
 
 		// inv[13] = preY;
 		viewMatrix = invert4(inv);
@@ -1160,7 +1179,7 @@ async function main() {
 			viewMatrix = invert4(inv);
 		}
 
-		if (activeKeys.includes(" ")) {
+		if (activeKeys.includes("KeySpace")) {
 			jumpDelta = Math.min(1, jumpDelta + 0.05);
 		} else {
 			jumpDelta = Math.max(0, jumpDelta - 0.05);
@@ -1172,7 +1191,9 @@ async function main() {
 		let actualViewMatrix = invert4(inv2);
 
 		const viewProj = multiply4(projectionMatrix, actualViewMatrix);
-		worker.postMessage({ view: viewProj });
+		let d = !(moved || orbited) && start != 0;
+		// console.log("down: " + d)
+		worker.postMessage({ view: viewProj, down: !d });
 
 		const currentFps = 1000 / (now - lastFrame) || 0;
 		avgFps = avgFps * 0.9 + currentFps * 0.1;
