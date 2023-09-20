@@ -302,8 +302,6 @@ function createWorker(self) {
 	const runSort = (viewProj) => {
 		if (!buffer) return;
 
-		
-
 		const f_buffer = new Float32Array(buffer);
 		const u_buffer = new Uint8Array(buffer);
 
@@ -349,7 +347,6 @@ function createWorker(self) {
 		for (let j = 0; j < vertexCount; j++) {
 			const i = indexMix[2 * j];
 
-
 			center[3 * j + 0] = f_buffer[8 * i + 0];
 			center[3 * j + 1] = f_buffer[8 * i + 1];
 			center[3 * j + 2] = f_buffer[8 * i + 2];
@@ -359,8 +356,17 @@ function createWorker(self) {
 			color[4 * j + 2] = u_buffer[32 * i + 24 + 2] / 255;
 			color[4 * j + 3] = u_buffer[32 * i + 24 + 3] / 255;
 
-			let scale = [ f_buffer[8 * i + 3 + 0], f_buffer[8 * i + 3 + 1],  f_buffer[8 * i + 3 + 2]];
-			let rot = [(u_buffer[32 * i + 28 + 0] - 128) / 128, (u_buffer[32 * i + 28 + 1] - 128) / 128, (u_buffer[32 * i + 28 + 2] - 128) / 128, (u_buffer[32 * i + 28 + 3] - 128) / 128]
+			let scale = [
+				f_buffer[8 * i + 3 + 0],
+				f_buffer[8 * i + 3 + 1],
+				f_buffer[8 * i + 3 + 2],
+			];
+			let rot = [
+				(u_buffer[32 * i + 28 + 0] - 128) / 128,
+				(u_buffer[32 * i + 28 + 1] - 128) / 128,
+				(u_buffer[32 * i + 28 + 2] - 128) / 128,
+				(u_buffer[32 * i + 28 + 3] - 128) / 128,
+			];
 
 			const R = [
 				1.0 - 2.0 * (rot[2] * rot[2] + rot[3] * rot[3]),
@@ -389,7 +395,6 @@ function createWorker(self) {
 				scale[2] * R[8],
 			];
 
-			
 			covA[3 * j + 0] = M[0] * M[0] + M[3] * M[3] + M[6] * M[6];
 			covA[3 * j + 1] = M[0] * M[1] + M[3] * M[4] + M[6] * M[7];
 			covA[3 * j + 2] = M[0] * M[2] + M[3] * M[5] + M[6] * M[8];
@@ -711,7 +716,8 @@ async function main() {
 	const reader = req.body.getReader();
 	let splatData = new Uint8Array(req.headers.get("content-length"));
 
-	const downsample = splatData.length / rowLength > 500000 ? 1 : 1 / devicePixelRatio;
+	const downsample =
+		splatData.length / rowLength > 500000 ? 1 : 1 / devicePixelRatio;
 	// const downsample = 1 / devicePixelRatio;
 	// const downsample = 1;
 	console.log(splatData.length / rowLength, downsample);
@@ -841,8 +847,8 @@ async function main() {
 	gl.vertexAttribPointer(a_covB, 3, gl.FLOAT, false, 0, 0);
 	ext.vertexAttribDivisorANGLE(a_covB, 1); // Use the extension here
 
-	let lastProj = []
-	let lastData
+	let lastProj = [];
+	let lastData;
 
 	worker.onmessage = (e) => {
 		if (e.data.buffer) {
@@ -859,22 +865,20 @@ async function main() {
 			let { covA, covB, center, color, viewProj } = e.data;
 			lastData = e.data;
 
-			lastProj = viewProj
+			lastProj = viewProj;
 			vertexCount = center.length / 3;
 
 			gl.bindBuffer(gl.ARRAY_BUFFER, centerBuffer);
-			gl.bufferData(gl.ARRAY_BUFFER, center, gl.STATIC_DRAW);
+			gl.bufferData(gl.ARRAY_BUFFER, center, gl.DYNAMIC_DRAW);
 
 			gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
-			gl.bufferData(gl.ARRAY_BUFFER, color, gl.STATIC_DRAW);
+			gl.bufferData(gl.ARRAY_BUFFER, color, gl.DYNAMIC_DRAW);
 
-			
 			gl.bindBuffer(gl.ARRAY_BUFFER, covABuffer);
-			gl.bufferData(gl.ARRAY_BUFFER, covA, gl.STATIC_DRAW);
+			gl.bufferData(gl.ARRAY_BUFFER, covA, gl.DYNAMIC_DRAW);
 
 			gl.bindBuffer(gl.ARRAY_BUFFER, covBBuffer);
-			gl.bufferData(gl.ARRAY_BUFFER, covB, gl.STATIC_DRAW);
-
+			gl.bufferData(gl.ARRAY_BUFFER, covB, gl.DYNAMIC_DRAW);
 		}
 	};
 
@@ -1117,18 +1121,18 @@ async function main() {
 		let inv = invert4(viewMatrix);
 
 		if (activeKeys.includes("ArrowUp")) {
-			if(activeKeys.includes("Shift")){
+			if (activeKeys.includes("Shift")) {
 				inv = translate4(inv, 0, -0.03, 0);
-			}else{
+			} else {
 				let preY = inv[13];
 				inv = translate4(inv, 0, 0, 0.1);
 				inv[13] = preY;
 			}
 		}
 		if (activeKeys.includes("ArrowDown")) {
-			if(activeKeys.includes("Shift")){
+			if (activeKeys.includes("Shift")) {
 				inv = translate4(inv, 0, 0.03, 0);
-			}else{
+			} else {
 				let preY = inv[13];
 				inv = translate4(inv, 0, 0, -0.1);
 				inv[13] = preY;
@@ -1220,7 +1224,7 @@ async function main() {
 		if (progress < 100) {
 			document.getElementById("progress").style.width = progress + "%";
 		} else {
-			document.getElementById("progress").style.display = "none";	
+			document.getElementById("progress").style.display = "none";
 		}
 		fps.innerText = Math.round(avgFps) + " fps";
 		lastFrame = now;
@@ -1321,5 +1325,3 @@ main().catch((err) => {
 	document.getElementById("spinner").style.display = "none";
 	document.getElementById("message").innerText = err.toString();
 });
-
-
