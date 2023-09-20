@@ -162,7 +162,7 @@ function getProjectionMatrix(fx, fy, width, height) {
 	const zfar = 200;
 	return [
 		[(2 * fx) / width, 0, 0, 0],
-		[0, (2 * fy) / height, 0, 0],
+		[0, -(2 * fy) / height, 0, 0],
 		[0, 0, zfar / (zfar - znear), 1],
 		[0, 0, -(zfar * znear) / (zfar - znear), 0],
 	].flat();
@@ -307,8 +307,9 @@ function createWorker(self) {
 		const f_buffer = new Float32Array(buffer);
 		const u_buffer = new Uint8Array(buffer);
 
-		const quat = new Float32Array(4 * vertexCount);
-		const scale = new Float32Array(3 * vertexCount);
+		const covA = new Float32Array(3 * vertexCount);
+		const covB = new Float32Array(3 * vertexCount);
+
 		const center = new Float32Array(3 * vertexCount);
 		const color = new Float32Array(4 * vertexCount);
 
@@ -348,10 +349,6 @@ function createWorker(self) {
 		for (let j = 0; j < vertexCount; j++) {
 			const i = indexMix[2 * j];
 
-			quat[4 * j + 0] = (u_buffer[32 * i + 28 + 0] - 128) / 128;
-			quat[4 * j + 1] = (u_buffer[32 * i + 28 + 1] - 128) / 128;
-			quat[4 * j + 2] = (u_buffer[32 * i + 28 + 2] - 128) / 128;
-			quat[4 * j + 3] = (u_buffer[32 * i + 28 + 3] - 128) / 128;
 
 			center[3 * j + 0] = f_buffer[8 * i + 0];
 			center[3 * j + 1] = f_buffer[8 * i + 1];
@@ -362,16 +359,50 @@ function createWorker(self) {
 			color[4 * j + 2] = u_buffer[32 * i + 24 + 2] / 255;
 			color[4 * j + 3] = u_buffer[32 * i + 24 + 3] / 255;
 
-			scale[3 * j + 0] = f_buffer[8 * i + 3 + 0];
-			scale[3 * j + 1] = f_buffer[8 * i + 3 + 1];
-			scale[3 * j + 2] = f_buffer[8 * i + 3 + 2];
+			let scale = [ f_buffer[8 * i + 3 + 0], f_buffer[8 * i + 3 + 1],  f_buffer[8 * i + 3 + 2]];
+			let rot = [(u_buffer[32 * i + 28 + 0] - 128) / 128, (u_buffer[32 * i + 28 + 1] - 128) / 128, (u_buffer[32 * i + 28 + 2] - 128) / 128, (u_buffer[32 * i + 28 + 3] - 128) / 128]
+
+			const R = [
+				1.0 - 2.0 * (rot[2] * rot[2] + rot[3] * rot[3]),
+				2.0 * (rot[1] * rot[2] + rot[0] * rot[3]),
+				2.0 * (rot[1] * rot[3] - rot[0] * rot[2]),
+
+				2.0 * (rot[1] * rot[2] - rot[0] * rot[3]),
+				1.0 - 2.0 * (rot[1] * rot[1] + rot[3] * rot[3]),
+				2.0 * (rot[2] * rot[3] + rot[0] * rot[1]),
+
+				2.0 * (rot[1] * rot[3] + rot[0] * rot[2]),
+				2.0 * (rot[2] * rot[3] - rot[0] * rot[1]),
+				1.0 - 2.0 * (rot[1] * rot[1] + rot[2] * rot[2]),
+			];
+
+			// Compute the matrix product of S and R (M = S * R)
+			const M = [
+				scale[0] * R[0],
+				scale[0] * R[1],
+				scale[0] * R[2],
+				scale[1] * R[3],
+				scale[1] * R[4],
+				scale[1] * R[5],
+				scale[2] * R[6],
+				scale[2] * R[7],
+				scale[2] * R[8],
+			];
+
+			
+			covA[3 * j + 0] = M[0] * M[0] + M[3] * M[3] + M[6] * M[6];
+			covA[3 * j + 1] = M[0] * M[1] + M[3] * M[4] + M[6] * M[7];
+			covA[3 * j + 2] = M[0] * M[2] + M[3] * M[5] + M[6] * M[8];
+			covB[3 * j + 0] = M[1] * M[1] + M[4] * M[4] + M[7] * M[7];
+			covB[3 * j + 1] = M[1] * M[2] + M[4] * M[5] + M[7] * M[8];
+			covB[3 * j + 2] = M[2] * M[2] + M[5] * M[5] + M[8] * M[8];
 		}
 
-		self.postMessage({ quat, center, color, scale, viewProj }, [
-			quat.buffer,
+		self.postMessage({ covA, center, color, covB, viewProj }, [
+			covA.buffer,
 			center.buffer,
 			color.buffer,
-			scale.buffer,
+			covB.buffer,
 		]);
 
 		// console.timeEnd("sort");
@@ -559,96 +590,94 @@ function createWorker(self) {
 }
 
 const vertexShaderSource = `
-precision mediump float;
-attribute vec2 position;
+  precision mediump float;
+  attribute vec2 position;
 
-attribute vec4 color;
-attribute vec4 quat;
-attribute vec3 scale;
-attribute vec3 center;
+  attribute vec4 color;
+  attribute vec3 center;
+  attribute vec3 covA;
+  attribute vec3 covB;
 
-uniform mat4 projection, view;
-uniform vec2 focal;
+  uniform mat4 projection, view;
+  uniform vec2 focal;
+  uniform vec2 viewport;
 
-varying vec4 vColor;
-varying vec3 vConic;
-varying vec2 vCenter;
-varying vec2 vPosition;
-uniform vec2 viewport;
+  varying vec4 vColor;
+  varying vec2 vPosition;
 
-mat3 transpose(mat3 m) { return mat3(m[0][0], m[1][0], m[2][0], m[0][1], m[1][1], m[2][1], m[0][2], m[1][2], m[2][2]); }
-
-mat3 compute_cov3d(vec3 scale, vec4 rot) {
-    mat3 S = mat3(
-        scale.x, 0.0, 0.0,
-        0.0, scale.y, 0.0,
-        0.0, 0.0, scale.z
+  mat3 transpose(mat3 m) {
+    return mat3(
+        m[0][0], m[1][0], m[2][0],
+        m[0][1], m[1][1], m[2][1],
+        m[0][2], m[1][2], m[2][2]
     );
-    mat3 R = mat3(
-        1.0 - 2.0 * (rot.z * rot.z + rot.w * rot.w), 2.0 * (rot.y * rot.z - rot.x * rot.w), 2.0 * (rot.y * rot.w + rot.x * rot.z),
-        2.0 * (rot.y * rot.z + rot.x * rot.w), 1.0 - 2.0 * (rot.y * rot.y + rot.w * rot.w), 2.0 * (rot.z * rot.w - rot.x * rot.y),
-        2.0 * (rot.y * rot.w - rot.x * rot.z), 2.0 * (rot.z * rot.w + rot.x * rot.y), 1.0 - 2.0 * (rot.y * rot.y + rot.z * rot.z)
-    );
-    mat3 M = S * R;
-    return transpose(M) * M;
-}
+  }
 
-vec3 compute_cov2d(vec3 center, vec3 scale, vec4 rot){
-    mat3 Vrk = compute_cov3d(scale, rot);
-    vec4 t = view * vec4(center, 1.0);
-    vec2 lims = 1.3 * 0.5 * viewport / focal;
-    t.xy = min(lims, max(-lims, t.xy / t.z)) * t.z;
+  void main () {
+    vec4 camspace = view * vec4(center, 1);
+    vec4 pos2d = projection * camspace;
+
+    float bounds = 1.2 * pos2d.w;
+    if (pos2d.z < -pos2d.w || pos2d.x < -bounds || pos2d.x > bounds
+		 || pos2d.y < -bounds || pos2d.y > bounds) {
+        gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+        return;
+    }
+
+    mat3 Vrk = mat3(
+        covA.x, covA.y, covA.z, 
+        covA.y, covB.x, covB.y,
+        covA.z, covB.y, covB.z
+    );
+	
     mat3 J = mat3(
-        focal.x / t.z, 0., -(focal.x * t.x) / (t.z * t.z), 
-        0., focal.y / t.z, -(focal.y * t.y) / (t.z * t.z), 
+        focal.x / camspace.z, 0., -(focal.x * camspace.x) / (camspace.z * camspace.z), 
+        0., -focal.y / camspace.z, (focal.y * camspace.y) / (camspace.z * camspace.z), 
         0., 0., 0.
     );
+
     mat3 W = transpose(mat3(view));
     mat3 T = W * J;
-    mat3 cov = transpose(T) * transpose(Vrk) * T;
-    return vec3(cov[0][0] + 0.3, cov[0][1], cov[1][1] + 0.3);
-}
+    mat3 cov = transpose(T) * Vrk * T;
+    
+    vec2 vCenter = vec2(pos2d) / pos2d.w;
 
-void main () {
-    vec4 camspace = view * vec4(center, 1);
-    vec4 pos2d = projection * mat4(1,0,0,0,0,-1,0,0,0,0,1,0,0,0,0,1) * camspace;
+    float diagonal1 = cov[0][0] + 0.3;
+    float offDiagonal = cov[0][1];
+    float diagonal2 = cov[1][1] + 0.3;
 
-    vec3 cov2d = compute_cov2d(center, scale, quat);
-    float det = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
-    vec3 conic = vec3(cov2d.z, cov2d.y, cov2d.x) / det;
-    float mid = 0.5 * (cov2d.x + cov2d.z);
-    float lambda1 = mid + sqrt(max(0.1, mid * mid - det));
-    float lambda2 = mid - sqrt(max(0.1, mid * mid - det));
-    vec2 v1 = 7.0 * sqrt(lambda1) * normalize(vec2(cov2d.y, lambda1 - cov2d.x));
-    vec2 v2 = 7.0 * sqrt(lambda2) * normalize(vec2(-(lambda1 - cov2d.x),cov2d.y));
+	float mid = 0.5 * (diagonal1 + diagonal2);
+	float radius = length(vec2((diagonal1 - diagonal2) / 2.0, offDiagonal));
+	float lambda1 = mid + radius;
+	float lambda2 = max(mid - radius, 0.1);
+	vec2 diagonalVector = normalize(vec2(offDiagonal, lambda1 - diagonal1));
+	vec2 v1 = min(sqrt(2.0 * lambda1), 1024.0) * diagonalVector;
+	vec2 v2 = min(sqrt(2.0 * lambda2), 1024.0) * vec2(diagonalVector.y, -diagonalVector.x);
+
 
     vColor = color;
-    vConic = conic;
-    vCenter = vec2(pos2d) / pos2d.w;
+    vPosition = position;
 
-    vPosition = vec2(vCenter + position.x * (position.y < 0.0 ? v1 : v2) / viewport);
-    gl_Position = vec4(vPosition, pos2d.z / pos2d.w, 1);
-}
+    gl_Position = vec4(
+        vCenter 
+            + position.x * v1 / viewport * 2.0 
+            + position.y * v2 / viewport * 2.0, 0.0, 1.0);
+
+  }
 `;
 
 const fragmentShaderSource = `
 precision mediump float;
 
-varying vec4 vColor;
-varying vec3 vConic;
-varying vec2 vCenter;
-uniform vec2 viewport;
-uniform vec2 focal;
+  varying vec4 vColor;
+  varying vec2 vPosition;
 
-void main () {    
-	vec2 d = (vCenter - 2.0 * (gl_FragCoord.xy/viewport - vec2(0.5, 0.5))) * viewport * 0.5;
-	float power = -0.5 * (vConic.x * d.x * d.x + vConic.z * d.y * d.y) - vConic.y * d.x * d.y;
-	if (power > 0.0) discard;
-	float alpha = min(0.99, vColor.a * exp(power));
-	if(alpha < 0.02) discard;
-
-	gl_FragColor = vec4(alpha * vColor.rgb, alpha);
-}
+  void main () {    
+	  float A = -dot(vPosition, vPosition);
+    if (A < -4.0) discard;
+    float B = exp(A) * vColor.a;
+    gl_FragColor = vec4(B * vColor.rgb, B);
+  }
 `;
 
 let defaultViewMatrix = [
@@ -682,7 +711,9 @@ async function main() {
 	const reader = req.body.getReader();
 	let splatData = new Uint8Array(req.headers.get("content-length"));
 
-	const downsample = splatData.length / rowLength > 500000 ? 2 : 1;
+	const downsample = splatData.length / rowLength > 500000 ? 1 : 1 / devicePixelRatio;
+	// const downsample = 1 / devicePixelRatio;
+	// const downsample = 1;
 	console.log(splatData.length / rowLength, downsample);
 
 	const worker = new Worker(
@@ -766,7 +797,7 @@ async function main() {
 	gl.uniformMatrix4fv(u_view, false, viewMatrix);
 
 	// positions
-	const triangleVertices = new Float32Array([1, -1, 1, 1, -1, 1, -1, -1]);
+	const triangleVertices = new Float32Array([-2, -2, 2, -2, 2, 2, -2, 2]);
 	const vertexBuffer = gl.createBuffer();
 	gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
 	gl.bufferData(gl.ARRAY_BUFFER, triangleVertices, gl.STATIC_DRAW);
@@ -795,25 +826,20 @@ async function main() {
 	gl.vertexAttribPointer(a_color, 4, gl.FLOAT, false, 0, 0);
 	ext.vertexAttribDivisorANGLE(a_color, 1); // Use the extension here
 
-	// quat
-	const quatBuffer = gl.createBuffer();
-	// gl.bindBuffer(gl.ARRAY_BUFFER, quatBuffer);
-	// gl.bufferData(gl.ARRAY_BUFFER, quat, gl.STATIC_DRAW);
-	const a_quat = gl.getAttribLocation(program, "quat");
-	gl.enableVertexAttribArray(a_quat);
-	gl.bindBuffer(gl.ARRAY_BUFFER, quatBuffer);
-	gl.vertexAttribPointer(a_quat, 4, gl.FLOAT, false, 0, 0);
-	ext.vertexAttribDivisorANGLE(a_quat, 1); // Use the extension here
+	// cov
+	const covABuffer = gl.createBuffer();
+	const a_covA = gl.getAttribLocation(program, "covA");
+	gl.enableVertexAttribArray(a_covA);
+	gl.bindBuffer(gl.ARRAY_BUFFER, covABuffer);
+	gl.vertexAttribPointer(a_covA, 3, gl.FLOAT, false, 0, 0);
+	ext.vertexAttribDivisorANGLE(a_covA, 1); // Use the extension here
 
-	// scale
-	const scaleBuffer = gl.createBuffer();
-	// gl.bindBuffer(gl.ARRAY_BUFFER, scaleBuffer);
-	// gl.bufferData(gl.ARRAY_BUFFER, scale, gl.STATIC_DRAW);
-	const a_scale = gl.getAttribLocation(program, "scale");
-	gl.enableVertexAttribArray(a_scale);
-	gl.bindBuffer(gl.ARRAY_BUFFER, scaleBuffer);
-	gl.vertexAttribPointer(a_scale, 3, gl.FLOAT, false, 0, 0);
-	ext.vertexAttribDivisorANGLE(a_scale, 1); // Use the extension here
+	const covBBuffer = gl.createBuffer();
+	const a_covB = gl.getAttribLocation(program, "covB");
+	gl.enableVertexAttribArray(a_covB);
+	gl.bindBuffer(gl.ARRAY_BUFFER, covBBuffer);
+	gl.vertexAttribPointer(a_covB, 3, gl.FLOAT, false, 0, 0);
+	ext.vertexAttribDivisorANGLE(a_covB, 1); // Use the extension here
 
 	let lastProj = []
 	let lastData
@@ -830,11 +856,11 @@ async function main() {
 			document.body.appendChild(link);
 			link.click();
 		} else {
-			let { quat, scale, center, color, viewProj } = e.data;
+			let { covA, covB, center, color, viewProj } = e.data;
 			lastData = e.data;
 
 			lastProj = viewProj
-			vertexCount = quat.length / 4;
+			vertexCount = center.length / 3;
 
 			gl.bindBuffer(gl.ARRAY_BUFFER, centerBuffer);
 			gl.bufferData(gl.ARRAY_BUFFER, center, gl.STATIC_DRAW);
@@ -842,11 +868,13 @@ async function main() {
 			gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
 			gl.bufferData(gl.ARRAY_BUFFER, color, gl.STATIC_DRAW);
 
-			gl.bindBuffer(gl.ARRAY_BUFFER, quatBuffer);
-			gl.bufferData(gl.ARRAY_BUFFER, quat, gl.STATIC_DRAW);
+			
+			gl.bindBuffer(gl.ARRAY_BUFFER, covABuffer);
+			gl.bufferData(gl.ARRAY_BUFFER, covA, gl.STATIC_DRAW);
 
-			gl.bindBuffer(gl.ARRAY_BUFFER, scaleBuffer);
-			gl.bufferData(gl.ARRAY_BUFFER, scale, gl.STATIC_DRAW);
+			gl.bindBuffer(gl.ARRAY_BUFFER, covBBuffer);
+			gl.bufferData(gl.ARRAY_BUFFER, covB, gl.STATIC_DRAW);
+
 		}
 	};
 
@@ -1179,8 +1207,10 @@ async function main() {
 
 		if (vertexCount > 0) {
 			document.getElementById("spinner").style.display = "none";
+			// console.time('render')
 			gl.uniformMatrix4fv(u_view, false, actualViewMatrix);
-			ext.drawArraysInstancedANGLE(gl.TRIANGLE_STRIP, 0, 4, vertexCount);
+			ext.drawArraysInstancedANGLE(gl.TRIANGLE_FAN, 0, 4, vertexCount);
+			// console.timeEnd('render')
 		} else {
 			gl.clear(gl.COLOR_BUFFER_BIT);
 			document.getElementById("spinner").style.display = "";
@@ -1190,7 +1220,7 @@ async function main() {
 		if (progress < 100) {
 			document.getElementById("progress").style.width = progress + "%";
 		} else {
-			document.getElementById("progress").style.display = "none";
+			document.getElementById("progress").style.display = "none";	
 		}
 		fps.innerText = Math.round(avgFps) + " fps";
 		lastFrame = now;
