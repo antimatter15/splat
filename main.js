@@ -296,8 +296,8 @@ function createWorker(self) {
 	// RGBA - colors (uint8)
 	// IJKL - quaternion/rot (uint8)
 	const rowLength = 3 * 4 + 3 * 4 + 4 + 4;
-	let depthMix = new BigInt64Array();
 	let lastProj = [];
+	let depthIndex = new Uint32Array();
 
 	const runSort = (viewProj) => {
 		if (!buffer) return;
@@ -311,13 +311,7 @@ function createWorker(self) {
 		const center = new Float32Array(3 * vertexCount);
 		const color = new Float32Array(4 * vertexCount);
 
-		if (depthMix.length !== vertexCount) {
-			depthMix = new BigInt64Array(vertexCount);
-			const indexMix = new Uint32Array(depthMix.buffer);
-			for (let j = 0; j < vertexCount; j++) {
-				indexMix[2 * j] = j;
-			}
-		} else {
+		if (depthIndex.length == vertexCount) {
 			let dot =
 				lastProj[2] * viewProj[2] +
 				lastProj[6] * viewProj[6] +
@@ -326,26 +320,66 @@ function createWorker(self) {
 				return;
 			}
 		}
+
+		let maxDepth = -Infinity;
+		let minDepth = Infinity;
+		let sizeList = new Int32Array(vertexCount);
+		for (let i = 0; i < vertexCount; i++) {
+			let depth =
+				((viewProj[2] * f_buffer[8 * i + 0] +
+					viewProj[6] * f_buffer[8 * i + 1] +
+					viewProj[10] * f_buffer[8 * i + 2]) *
+					4096) |
+				0;
+			sizeList[i] = depth;
+			if (depth > maxDepth) maxDepth = depth;
+			if (depth < minDepth) minDepth = depth;
+		}
 		// console.time("sort");
 
-		const floatMix = new Float32Array(depthMix.buffer);
-		const indexMix = new Uint32Array(depthMix.buffer);
+		// This is a 16 bit two-pass radix sort
 
-		for (let j = 0; j < vertexCount; j++) {
-			let i = indexMix[2 * j];
-			floatMix[2 * j + 1] =
-				10000 +
-				viewProj[2] * f_buffer[8 * i + 0] +
-				viewProj[6] * f_buffer[8 * i + 1] +
-				viewProj[10] * f_buffer[8 * i + 2];
+		// We simultaneously extract the first and second
+		// bytes of the rescaled depths and accumulate 
+		// them into respective histograms
+		let depthInv = (256 * 256) / (maxDepth - minDepth);
+		let counts0 = new Uint32Array(256),
+			counts1 = new Uint32Array(256);
+		for (let i = 0; i < vertexCount; i++) {
+			sizeList[i] = ((sizeList[i] - minDepth) * depthInv) | 0;
+			counts0[sizeList[i] & 0xff]++;
+			counts1[(sizeList[i] >> 8) & 0xff]++;
+		}
+		// We construct starts0 and starts1 as the 
+		// cumulative sum of counts0 and counts1
+		let starts0 = new Uint32Array(256),
+			starts1 = new Uint32Array(256);
+		for (let i = 1; i < 256; i++) {
+			starts0[i] = starts0[i - 1] + counts0[i - 1];
+			starts1[i] = starts1[i - 1] + counts1[i - 1];
+		}
+		// we run our first pass which sorts by the 
+		// least significant byte of the depth. We store
+		// the remaining (most significant) byte into
+		// value1 in order to save a lookup in next pass.
+		let index0 = new Uint32Array(vertexCount);
+		let value1 = new Uint8Array(vertexCount);
+		for (let i = 0; i < vertexCount; i++) {
+			let pos = starts0[sizeList[i] & 0xff]++;
+			index0[pos] = i;
+			value1[pos] = sizeList[i] >> 8;
+		}
+		// We perform our second and final pass by
+		// sorting on the most significant depth byte here
+		depthIndex = new Uint32Array(vertexCount);
+		for (let i = 0; i < vertexCount; i++) {
+			depthIndex[starts1[value1[i]]++] = index0[i];
 		}
 
 		lastProj = viewProj;
-
-		depthMix.sort();
-
+		// console.timeEnd("sort");
 		for (let j = 0; j < vertexCount; j++) {
-			const i = indexMix[2 * j];
+			const i = depthIndex[j];
 
 			center[3 * j + 0] = f_buffer[8 * i + 0];
 			center[3 * j + 1] = f_buffer[8 * i + 1];
