@@ -724,7 +724,7 @@ let defaultViewMatrix = [
 	0.03, 6.55, 1,
 ];
 let viewMatrix = defaultViewMatrix;
-
+let activeDownsample = null
 async function main() {
 	let carousel = true;
 	const params = new URLSearchParams(location.search);
@@ -898,6 +898,8 @@ async function main() {
 		} else {
 			let { covA, covB, center, color, viewProj } = e.data;
 			lastData = e.data;
+
+			activeDownsample = downsample
 
 			lastProj = viewProj;
 			vertexCount = center.length / 3;
@@ -1328,6 +1330,12 @@ async function main() {
 		e.stopPropagation();
 		selectFile(e.dataTransfer.files[0]);
 	});
+
+	window.addEventListener('resize', (e) => {
+		const canvas = document.getElementById("canvas");
+    	canvas.width = innerWidth / activeDownsample;
+    	canvas.height = innerHeight / activeDownsample;
+	})
 
 	let bytesRead = 0;
 	let lastVertexCount = -1;
