@@ -337,44 +337,18 @@ function createWorker(self) {
 		}
 		// console.time("sort");
 
-		// This is a 16 bit two-pass radix sort
-
-		// We simultaneously extract the first and second
-		// bytes of the rescaled depths and accumulate 
-		// them into respective histograms
+		// This is a 16 bit single-pass counting sort
 		let depthInv = (256 * 256) / (maxDepth - minDepth);
-		let counts0 = new Uint32Array(256),
-			counts1 = new Uint32Array(256);
+		let counts0 = new Uint32Array(256*256);
 		for (let i = 0; i < vertexCount; i++) {
 			sizeList[i] = ((sizeList[i] - minDepth) * depthInv) | 0;
-			counts0[sizeList[i] & 0xff]++;
-			counts1[(sizeList[i] >> 8) & 0xff]++;
+			counts0[sizeList[i]]++;
 		}
-		// We construct starts0 and starts1 as the 
-		// cumulative sum of counts0 and counts1
-		let starts0 = new Uint32Array(256),
-			starts1 = new Uint32Array(256);
-		for (let i = 1; i < 256; i++) {
-			starts0[i] = starts0[i - 1] + counts0[i - 1];
-			starts1[i] = starts1[i - 1] + counts1[i - 1];
-		}
-		// we run our first pass which sorts by the 
-		// least significant byte of the depth. We store
-		// the remaining (most significant) byte into
-		// value1 in order to save a lookup in next pass.
-		let index0 = new Uint32Array(vertexCount);
-		let value1 = new Uint8Array(vertexCount);
-		for (let i = 0; i < vertexCount; i++) {
-			let pos = starts0[sizeList[i] & 0xff]++;
-			index0[pos] = i;
-			value1[pos] = sizeList[i] >> 8;
-		}
-		// We perform our second and final pass by
-		// sorting on the most significant depth byte here
+		let starts0 = new Uint32Array(256*256);
+		for (let i = 1; i < 256*256; i++) starts0[i] = starts0[i - 1] + counts0[i - 1];
 		depthIndex = new Uint32Array(vertexCount);
-		for (let i = 0; i < vertexCount; i++) {
-			depthIndex[starts1[value1[i]]++] = index0[i];
-		}
+		for (let i = 0; i < vertexCount; i++) depthIndex[starts0[sizeList[i]]++] = i;
+		
 
 		lastProj = viewProj;
 		// console.timeEnd("sort");
