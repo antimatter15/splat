@@ -919,7 +919,7 @@ async function main() {
 	let activeKeys = [];
 
 	window.addEventListener("keydown", (e) => {
-		if (document.activeElement != document.body) return;
+		// if (document.activeElement != document.body) return;
 		carousel = false;
 		if (!activeKeys.includes(e.key)) activeKeys.push(e.key);
 		if (/\d/.test(e.key)) {
