@@ -1152,116 +1152,129 @@ async function main() {
 	let start = 0;
 
 	const frame = (now) => {
-		let inv = invert4(viewMatrix);
+   		const fpsSelect = document.getElementById("fps-selector");
+		const fpsLimit = fpsSelect.value;
 
-		if (activeKeys.includes("ArrowUp")) {
-			if (activeKeys.includes("Shift")) {
-				inv = translate4(inv, 0, -0.03, 0);
-			} else {
-				let preY = inv[13];
-				inv = translate4(inv, 0, 0, 0.1);
-				inv[13] = preY;
+		var minFrameGap = 0;
+
+		if (parseInt(fpsLimit)) {
+			minFrameGap = 1000 / fpsLimit;
+		}
+
+		const curFrameGap = now - lastFrame;
+
+   		if (curFrameGap >= minFrameGap || !lastFrame) {
+			let inv = invert4(viewMatrix);
+
+			if (activeKeys.includes("ArrowUp")) {
+				if (activeKeys.includes("Shift")) {
+					inv = translate4(inv, 0, -0.03, 0);
+				} else {
+					let preY = inv[13];
+					inv = translate4(inv, 0, 0, 0.1);
+					inv[13] = preY;
+				}
 			}
-		}
-		if (activeKeys.includes("ArrowDown")) {
-			if (activeKeys.includes("Shift")) {
-				inv = translate4(inv, 0, 0.03, 0);
-			} else {
-				let preY = inv[13];
-				inv = translate4(inv, 0, 0, -0.1);
-				inv[13] = preY;
+			if (activeKeys.includes("ArrowDown")) {
+				if (activeKeys.includes("Shift")) {
+					inv = translate4(inv, 0, 0.03, 0);
+				} else {
+					let preY = inv[13];
+					inv = translate4(inv, 0, 0, -0.1);
+					inv[13] = preY;
+				}
 			}
-		}
-		if (activeKeys.includes("ArrowLeft"))
-			inv = translate4(inv, -0.03, 0, 0);
-		//
-		if (activeKeys.includes("ArrowRight"))
-			inv = translate4(inv, 0.03, 0, 0);
-		// inv = rotate4(inv, 0.01, 0, 1, 0);
-		if (activeKeys.includes("a")) inv = rotate4(inv, -0.01, 0, 1, 0);
-		if (activeKeys.includes("d")) inv = rotate4(inv, 0.01, 0, 1, 0);
-		if (activeKeys.includes("q")) inv = rotate4(inv, 0.01, 0, 0, 1);
-		if (activeKeys.includes("e")) inv = rotate4(inv, -0.01, 0, 0, 1);
-		if (activeKeys.includes("w")) inv = rotate4(inv, 0.005, 1, 0, 0);
-		if (activeKeys.includes("s")) inv = rotate4(inv, -0.005, 1, 0, 0);
+			if (activeKeys.includes("ArrowLeft"))
+				inv = translate4(inv, -0.03, 0, 0);
+			//
+			if (activeKeys.includes("ArrowRight"))
+				inv = translate4(inv, 0.03, 0, 0);
+			// inv = rotate4(inv, 0.01, 0, 1, 0);
+			if (activeKeys.includes("a")) inv = rotate4(inv, -0.01, 0, 1, 0);
+			if (activeKeys.includes("d")) inv = rotate4(inv, 0.01, 0, 1, 0);
+			if (activeKeys.includes("q")) inv = rotate4(inv, 0.01, 0, 0, 1);
+			if (activeKeys.includes("e")) inv = rotate4(inv, -0.01, 0, 0, 1);
+			if (activeKeys.includes("w")) inv = rotate4(inv, 0.005, 1, 0, 0);
+			if (activeKeys.includes("s")) inv = rotate4(inv, -0.005, 1, 0, 0);
 
-		if (["j", "k", "l", "i"].some((k) => activeKeys.includes(k))) {
-			let d = 4;
-			inv = translate4(inv, 0, 0, d);
-			inv = rotate4(
-				inv,
-				activeKeys.includes("j")
-					? -0.05
-					: activeKeys.includes("l")
-					? 0.05
-					: 0,
-				0,
-				1,
-				0,
-			);
-			inv = rotate4(
-				inv,
-				activeKeys.includes("i")
-					? 0.05
-					: activeKeys.includes("k")
-					? -0.05
-					: 0,
-				1,
-				0,
-				0,
-			);
-			inv = translate4(inv, 0, 0, -d);
-		}
+			if (["j", "k", "l", "i"].some((k) => activeKeys.includes(k))) {
+				let d = 4;
+				inv = translate4(inv, 0, 0, d);
+				inv = rotate4(
+					inv,
+					activeKeys.includes("j")
+						? -0.05
+						: activeKeys.includes("l")
+						? 0.05
+						: 0,
+					0,
+					1,
+					0,
+				);
+				inv = rotate4(
+					inv,
+					activeKeys.includes("i")
+						? 0.05
+						: activeKeys.includes("k")
+						? -0.05
+						: 0,
+					1,
+					0,
+					0,
+				);
+				inv = translate4(inv, 0, 0, -d);
+			}
 
-		// inv[13] = preY;
-		viewMatrix = invert4(inv);
-
-		if (carousel) {
-			let inv = invert4(defaultViewMatrix);
-
-			const t = Math.sin((Date.now() - start) / 5000);
-			inv = translate4(inv, 2.5 * t, 0, 6 * (1 - Math.cos(t)));
-			inv = rotate4(inv, -0.6 * t, 0, 1, 0);
-
+			// inv[13] = preY;
 			viewMatrix = invert4(inv);
+
+			if (carousel) {
+				let inv = invert4(defaultViewMatrix);
+
+				const t = Math.sin((Date.now() - start) / 5000);
+				inv = translate4(inv, 2.5 * t, 0, 6 * (1 - Math.cos(t)));
+				inv = rotate4(inv, -0.6 * t, 0, 1, 0);
+
+				viewMatrix = invert4(inv);
+			}
+
+			if (activeKeys.includes(" ")) {
+				jumpDelta = Math.min(1, jumpDelta + 0.05);
+			} else {
+				jumpDelta = Math.max(0, jumpDelta - 0.05);
+			}
+
+			let inv2 = invert4(viewMatrix);
+			inv2[13] -= jumpDelta;
+			inv2 = rotate4(inv2, -0.1 * jumpDelta, 1, 0, 0);
+			let actualViewMatrix = invert4(inv2);
+
+			const viewProj = multiply4(projectionMatrix, actualViewMatrix);
+			worker.postMessage({ view: viewProj });
+
+			const currentFps = 1000 / (now - lastFrame) || 0;
+			avgFps = avgFps * 0.9 + currentFps * 0.1;
+
+			if (vertexCount > 0) {
+				document.getElementById("spinner").style.display = "none";
+				// console.time('render')
+				gl.uniformMatrix4fv(u_view, false, actualViewMatrix);
+				ext.drawArraysInstancedANGLE(gl.TRIANGLE_FAN, 0, 4, vertexCount);
+				// console.timeEnd('render')
+			} else {
+				gl.clear(gl.COLOR_BUFFER_BIT);
+				document.getElementById("spinner").style.display = "";
+				start = Date.now() + 2000;
+			}
+			const progress = (100 * vertexCount) / (splatData.length / rowLength);
+			if (progress < 100) {
+				document.getElementById("progress").style.width = progress + "%";
+			} else {
+				document.getElementById("progress").style.display = "none";
+			}
+			fps.innerText = Math.round(avgFps) + " fps";
+			lastFrame = now;
 		}
-
-		if (activeKeys.includes(" ")) {
-			jumpDelta = Math.min(1, jumpDelta + 0.05);
-		} else {
-			jumpDelta = Math.max(0, jumpDelta - 0.05);
-		}
-
-		let inv2 = invert4(viewMatrix);
-		inv2[13] -= jumpDelta;
-		inv2 = rotate4(inv2, -0.1 * jumpDelta, 1, 0, 0);
-		let actualViewMatrix = invert4(inv2);
-
-		const viewProj = multiply4(projectionMatrix, actualViewMatrix);
-		worker.postMessage({ view: viewProj });
-
-		const currentFps = 1000 / (now - lastFrame) || 0;
-		avgFps = avgFps * 0.9 + currentFps * 0.1;
-
-		if (vertexCount > 0) {
-			document.getElementById("spinner").style.display = "none";
-			// console.time('render')
-			gl.uniformMatrix4fv(u_view, false, actualViewMatrix);
-			ext.drawArraysInstancedANGLE(gl.TRIANGLE_FAN, 0, 4, vertexCount);
-			// console.timeEnd('render')
-		} else {
-			gl.clear(gl.COLOR_BUFFER_BIT);
-			document.getElementById("spinner").style.display = "";
-			start = Date.now() + 2000;
-		}
-		const progress = (100 * vertexCount) / (splatData.length / rowLength);
-		if (progress < 100) {
-			document.getElementById("progress").style.width = progress + "%";
-		} else {
-			document.getElementById("progress").style.display = "none";
-		}
-		fps.innerText = Math.round(avgFps) + " fps";
-		lastFrame = now;
 		requestAnimationFrame(frame);
 	};
 
