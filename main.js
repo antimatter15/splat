@@ -298,20 +298,120 @@ function createWorker(self) {
     const rowLength = 3 * 4 + 3 * 4 + 4 + 4;
     let lastProj = [];
     let depthIndex = new Uint32Array();
+    let lastVertexCount = 0;
 
-    const runSort = (viewProj) => {
+    var _floatView = new Float32Array(1);
+    var _int32View = new Int32Array(_floatView.buffer);
+
+    function floatToHalf(float) {
+        _floatView[0] = float;
+        var f = _int32View[0];
+
+        var sign = (f >> 31) & 0x0001;
+        var exp = (f >> 23) & 0x00ff;
+        var frac = f & 0x007fffff;
+
+        var newExp;
+        if (exp == 0) {
+            newExp = 0;
+        } else if (exp < 113) {
+            newExp = 0;
+            frac |= 0x00800000;
+            frac = frac >> (113 - exp);
+            if (frac & 0x01000000) {
+                newExp = 1;
+                frac = 0;
+            }
+        } else if (exp < 142) {
+            newExp = exp - 112;
+        } else {
+            newExp = 31;
+            frac = 0;
+        }
+
+        return (sign << 15) | (newExp << 10) | (frac >> 13);
+    }
+
+    function packHalf2x16(x, y) {
+        return (floatToHalf(x) | (floatToHalf(y) << 16)) >>> 0;
+    }
+
+    function generateTexture() {
         if (!buffer) return;
-
         const f_buffer = new Float32Array(buffer);
         const u_buffer = new Uint8Array(buffer);
 
-        const covA = new Float32Array(3 * vertexCount);
-        const covB = new Float32Array(3 * vertexCount);
+        var texwidth = 1024 * 2; // Set to your desired width
+        var texheight = Math.ceil((2 * vertexCount) / texwidth); // Set to your desired height
+        var texdata = new Uint32Array(texwidth * texheight * 4); // 4 components per pixel (RGBA)
+        var texdata_c = new Uint8Array(texdata.buffer);
+        var texdata_f = new Float32Array(texdata.buffer);
 
-        const center = new Float32Array(3 * vertexCount);
-        const color = new Float32Array(4 * vertexCount);
+        // Here we convert from a .splat file buffer into a texture
+        // With a little bit more foresight perhaps this texture file
+        // should have been the native format as it'd be very easy to
+        // load it into webgl.
+        for (let i = 0; i < vertexCount; i++) {
+            // x, y, z
+            texdata_f[8 * i + 0] = f_buffer[8 * i + 0];
+            texdata_f[8 * i + 1] = f_buffer[8 * i + 1];
+            texdata_f[8 * i + 2] = f_buffer[8 * i + 2];
 
-        if (depthIndex.length == vertexCount) {
+            // r, g, b, a
+            texdata_c[4 * (8 * i + 7) + 0] = u_buffer[32 * i + 24 + 0];
+            texdata_c[4 * (8 * i + 7) + 1] = u_buffer[32 * i + 24 + 1];
+            texdata_c[4 * (8 * i + 7) + 2] = u_buffer[32 * i + 24 + 2];
+            texdata_c[4 * (8 * i + 7) + 3] = u_buffer[32 * i + 24 + 3];
+
+            // quaternions
+            let scale = [
+                f_buffer[8 * i + 3 + 0],
+                f_buffer[8 * i + 3 + 1],
+                f_buffer[8 * i + 3 + 2],
+            ];
+            let rot = [
+                (u_buffer[32 * i + 28 + 0] - 128) / 128,
+                (u_buffer[32 * i + 28 + 1] - 128) / 128,
+                (u_buffer[32 * i + 28 + 2] - 128) / 128,
+                (u_buffer[32 * i + 28 + 3] - 128) / 128,
+            ];
+
+            // Compute the matrix product of S and R (M = S * R)
+            const M = [
+                1.0 - 2.0 * (rot[2] * rot[2] + rot[3] * rot[3]),
+                2.0 * (rot[1] * rot[2] + rot[0] * rot[3]),
+                2.0 * (rot[1] * rot[3] - rot[0] * rot[2]),
+
+                2.0 * (rot[1] * rot[2] - rot[0] * rot[3]),
+                1.0 - 2.0 * (rot[1] * rot[1] + rot[3] * rot[3]),
+                2.0 * (rot[2] * rot[3] + rot[0] * rot[1]),
+
+                2.0 * (rot[1] * rot[3] + rot[0] * rot[2]),
+                2.0 * (rot[2] * rot[3] - rot[0] * rot[1]),
+                1.0 - 2.0 * (rot[1] * rot[1] + rot[2] * rot[2]),
+            ].map((k, i) => k * scale[Math.floor(i / 3)]);
+
+            const sigma = [
+                M[0] * M[0] + M[3] * M[3] + M[6] * M[6],
+                M[0] * M[1] + M[3] * M[4] + M[6] * M[7],
+                M[0] * M[2] + M[3] * M[5] + M[6] * M[8],
+                M[1] * M[1] + M[4] * M[4] + M[7] * M[7],
+                M[1] * M[2] + M[4] * M[5] + M[7] * M[8],
+                M[2] * M[2] + M[5] * M[5] + M[8] * M[8],
+            ];
+
+            texdata[8 * i + 4] = packHalf2x16(4 * sigma[0], 4 * sigma[1]);
+            texdata[8 * i + 5] = packHalf2x16(4 * sigma[2], 4 * sigma[3]);
+            texdata[8 * i + 6] = packHalf2x16(4 * sigma[4], 4 * sigma[5]);
+        }
+
+        self.postMessage({ texdata, texwidth, texheight }, [texdata.buffer]);
+    }
+
+    function runSort(viewProj) {
+        if (!buffer) return;
+        const f_buffer = new Float32Array(buffer);
+        if (lastVertexCount == vertexCount) {
             let dot =
                 lastProj[2] * viewProj[2] +
                 lastProj[6] * viewProj[6] +
@@ -319,8 +419,12 @@ function createWorker(self) {
             if (Math.abs(dot - 1) < 0.01) {
                 return;
             }
+        } else {
+            generateTexture();
+            lastVertexCount = vertexCount;
         }
 
+        console.time("sort");
         let maxDepth = -Infinity;
         let minDepth = Infinity;
         let sizeList = new Int32Array(vertexCount);
@@ -335,7 +439,6 @@ function createWorker(self) {
             if (depth > maxDepth) maxDepth = depth;
             if (depth < minDepth) minDepth = depth;
         }
-        // console.time("sort");
 
         // This is a 16 bit single-pass counting sort
         let depthInv = (256 * 256) / (maxDepth - minDepth);
@@ -351,76 +454,13 @@ function createWorker(self) {
         for (let i = 0; i < vertexCount; i++)
             depthIndex[starts0[sizeList[i]]++] = i;
 
+        console.timeEnd("sort");
+
         lastProj = viewProj;
-        // console.timeEnd("sort");
-        for (let j = 0; j < vertexCount; j++) {
-            const i = depthIndex[j];
-
-            center[3 * j + 0] = f_buffer[8 * i + 0];
-            center[3 * j + 1] = f_buffer[8 * i + 1];
-            center[3 * j + 2] = f_buffer[8 * i + 2];
-
-            color[4 * j + 0] = u_buffer[32 * i + 24 + 0] / 255;
-            color[4 * j + 1] = u_buffer[32 * i + 24 + 1] / 255;
-            color[4 * j + 2] = u_buffer[32 * i + 24 + 2] / 255;
-            color[4 * j + 3] = u_buffer[32 * i + 24 + 3] / 255;
-
-            let scale = [
-                f_buffer[8 * i + 3 + 0],
-                f_buffer[8 * i + 3 + 1],
-                f_buffer[8 * i + 3 + 2],
-            ];
-            let rot = [
-                (u_buffer[32 * i + 28 + 0] - 128) / 128,
-                (u_buffer[32 * i + 28 + 1] - 128) / 128,
-                (u_buffer[32 * i + 28 + 2] - 128) / 128,
-                (u_buffer[32 * i + 28 + 3] - 128) / 128,
-            ];
-
-            const R = [
-                1.0 - 2.0 * (rot[2] * rot[2] + rot[3] * rot[3]),
-                2.0 * (rot[1] * rot[2] + rot[0] * rot[3]),
-                2.0 * (rot[1] * rot[3] - rot[0] * rot[2]),
-
-                2.0 * (rot[1] * rot[2] - rot[0] * rot[3]),
-                1.0 - 2.0 * (rot[1] * rot[1] + rot[3] * rot[3]),
-                2.0 * (rot[2] * rot[3] + rot[0] * rot[1]),
-
-                2.0 * (rot[1] * rot[3] + rot[0] * rot[2]),
-                2.0 * (rot[2] * rot[3] - rot[0] * rot[1]),
-                1.0 - 2.0 * (rot[1] * rot[1] + rot[2] * rot[2]),
-            ];
-
-            // Compute the matrix product of S and R (M = S * R)
-            const M = [
-                scale[0] * R[0],
-                scale[0] * R[1],
-                scale[0] * R[2],
-                scale[1] * R[3],
-                scale[1] * R[4],
-                scale[1] * R[5],
-                scale[2] * R[6],
-                scale[2] * R[7],
-                scale[2] * R[8],
-            ];
-
-            covA[3 * j + 0] = M[0] * M[0] + M[3] * M[3] + M[6] * M[6];
-            covA[3 * j + 1] = M[0] * M[1] + M[3] * M[4] + M[6] * M[7];
-            covA[3 * j + 2] = M[0] * M[2] + M[3] * M[5] + M[6] * M[8];
-            covB[3 * j + 0] = M[1] * M[1] + M[4] * M[4] + M[7] * M[7];
-            covB[3 * j + 1] = M[1] * M[2] + M[4] * M[5] + M[7] * M[8];
-            covB[3 * j + 2] = M[2] * M[2] + M[5] * M[5] + M[8] * M[8];
-        }
-
-        self.postMessage({ covA, center, color, covB, viewProj }, [
-            covA.buffer,
-            center.buffer,
-            color.buffer,
-            covB.buffer,
+        self.postMessage({ depthIndex, viewProj, vertexCount }, [
+            depthIndex.buffer,
         ]);
-
-        // console.timeEnd("sort");
-    };
+    }
 
     function processPlyBuffer(inputBuffer) {
         const ubuf = new Uint8Array(inputBuffer);
@@ -604,102 +644,89 @@ function createWorker(self) {
 }
 
 const vertexShaderSource = `
-  precision mediump float;
-  attribute vec2 position;
+#version 300 es
+precision highp float;
+precision highp int;
 
-  attribute vec4 color;
-  attribute vec3 center;
-  attribute vec3 covA;
-  attribute vec3 covB;
+uniform highp usampler2D u_texture;
+uniform mat4 projection, view;
+uniform vec2 focal;
+uniform vec2 viewport;
 
-  uniform mat4 projection, view;
-  uniform vec2 focal;
-  uniform vec2 viewport;
+in vec2 position;
+in int index;
 
-  varying vec4 vColor;
-  varying vec2 vPosition;
+out vec4 vColor;
+out vec2 vPosition;
 
-  mat3 transpose(mat3 m) {
-    return mat3(
-        m[0][0], m[1][0], m[2][0],
-        m[0][1], m[1][1], m[2][1],
-        m[0][2], m[1][2], m[2][2]
-    );
-  }
+void main () {
+    uvec4 cen = texelFetch(u_texture, ivec2((uint(index) & 0x3ffu) << 1, uint(index) >> 10), 0);
+    vec4 cam = view * vec4(uintBitsToFloat(cen.xyz), 1);
+    vec4 pos2d = projection * cam;
 
-  void main () {
-    vec4 camspace = view * vec4(center, 1);
-    vec4 pos2d = projection * camspace;
-
-    float bounds = 1.2 * pos2d.w;
-    if (pos2d.z < -pos2d.w || pos2d.x < -bounds || pos2d.x > bounds
-         || pos2d.y < -bounds || pos2d.y > bounds) {
+    float clip = 1.2 * pos2d.w;
+    if (pos2d.z < -pos2d.w || pos2d.x < -clip || pos2d.x > clip || pos2d.y < -clip || pos2d.y > clip) {
         gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
         return;
     }
 
-    mat3 Vrk = mat3(
-        covA.x, covA.y, covA.z, 
-        covA.y, covB.x, covB.y,
-        covA.z, covB.y, covB.z
-    );
-    
+    uvec4 cov = texelFetch(u_texture, ivec2(((uint(index) & 0x3ffu) << 1) | 1u, uint(index) >> 10), 0);
+    vec2 u1 = unpackHalf2x16(cov.x), u2 = unpackHalf2x16(cov.y), u3 = unpackHalf2x16(cov.z);
+    mat3 Vrk = mat3(u1.x, u1.y, u2.x, u1.y, u2.y, u3.x, u2.x, u3.x, u3.y);
+
     mat3 J = mat3(
-        focal.x / camspace.z, 0., -(focal.x * camspace.x) / (camspace.z * camspace.z), 
-        0., -focal.y / camspace.z, (focal.y * camspace.y) / (camspace.z * camspace.z), 
+        focal.x / cam.z, 0., -(focal.x * cam.x) / (cam.z * cam.z), 
+        0., -focal.y / cam.z, (focal.y * cam.y) / (cam.z * cam.z), 
         0., 0., 0.
     );
 
-    mat3 W = transpose(mat3(view));
-    mat3 T = W * J;
-    mat3 cov = transpose(T) * Vrk * T;
-    
-    vec2 vCenter = vec2(pos2d) / pos2d.w;
+    mat3 T = transpose(mat3(view)) * J;
+    mat3 cov2d = transpose(T) * Vrk * T;
 
-    float diagonal1 = cov[0][0] + 0.3;
-    float offDiagonal = cov[0][1];
-    float diagonal2 = cov[1][1] + 0.3;
+    float mid = (cov2d[0][0] + cov2d[1][1]) / 2.0;
+    float radius = length(vec2((cov2d[0][0] - cov2d[1][1]) / 2.0, cov2d[0][1]));
+    float lambda1 = mid + radius, lambda2 = mid - radius;
 
-    float mid = 0.5 * (diagonal1 + diagonal2);
-    float radius = length(vec2((diagonal1 - diagonal2) / 2.0, offDiagonal));
-    float lambda1 = mid + radius;
-    float lambda2 = max(mid - radius, 0.1);
-    vec2 diagonalVector = normalize(vec2(offDiagonal, lambda1 - diagonal1));
-    vec2 v1 = min(sqrt(2.0 * lambda1), 1024.0) * diagonalVector;
-    vec2 v2 = min(sqrt(2.0 * lambda2), 1024.0) * vec2(diagonalVector.y, -diagonalVector.x);
+    if(lambda2 < 0.0) return;
+    vec2 diagonalVector = normalize(vec2(cov2d[0][1], lambda1 - cov2d[0][0]));
+    vec2 majorAxis = min(sqrt(2.0 * lambda1), 1024.0) * diagonalVector;
+    vec2 minorAxis = min(sqrt(2.0 * lambda2), 1024.0) * vec2(diagonalVector.y, -diagonalVector.x);
 
-
-    vColor = color;
+    vColor = vec4((cov.w) & 0xffu, (cov.w >> 8) & 0xffu, (cov.w >> 16) & 0xffu, (cov.w >> 24) & 0xffu) / 255.0;
     vPosition = position;
 
+    vec2 vCenter = vec2(pos2d) / pos2d.w;
     gl_Position = vec4(
         vCenter 
-            + position.x * v1 / viewport * 2.0 
-            + position.y * v2 / viewport * 2.0, 0.0, 1.0);
+        + position.x * majorAxis / viewport 
+        + position.y * minorAxis / viewport, 0.0, 1.0);
 
-  }
-`;
+}
+`.trim();
 
 const fragmentShaderSource = `
-precision mediump float;
+#version 300 es
+precision highp float;
 
-  varying vec4 vColor;
-  varying vec2 vPosition;
+in vec4 vColor;
+in vec2 vPosition;
 
-  void main () {    
-      float A = -dot(vPosition, vPosition);
+out vec4 fragColor;
+
+void main () {
+    float A = -dot(vPosition, vPosition);
     if (A < -4.0) discard;
     float B = exp(A) * vColor.a;
-    gl_FragColor = vec4(B * vColor.rgb, B);
-  }
-`;
+    fragColor = vec4(B * vColor.rgb, B);
+}
+
+`.trim();
 
 let defaultViewMatrix = [
     0.47, 0.04, 0.88, 0, -0.11, 0.99, 0.02, 0, -0.88, -0.11, 0.47, 0, 0.07,
     0.03, 6.55, 1,
 ];
 let viewMatrix = defaultViewMatrix;
-let activeDownsample = null;
 async function main() {
     let carousel = true;
     const params = new URLSearchParams(location.search);
@@ -727,8 +754,6 @@ async function main() {
 
     const downsample =
         splatData.length / rowLength > 500000 ? 1 : 1 / devicePixelRatio;
-    // const downsample = 1 / devicePixelRatio;
-    // const downsample = 1;
     console.log(splatData.length / rowLength, downsample);
 
     const worker = new Worker(
@@ -740,20 +765,12 @@ async function main() {
     );
 
     const canvas = document.getElementById("canvas");
-    canvas.width = innerWidth / downsample;
-    canvas.height = innerHeight / downsample;
-
     const fps = document.getElementById("fps");
+    let projectionMatrix;
 
-    let projectionMatrix = getProjectionMatrix(
-        camera.fx / downsample,
-        camera.fy / downsample,
-        canvas.width,
-        canvas.height,
-    );
-
-    const gl = canvas.getContext("webgl");
-    const ext = gl.getExtension("ANGLE_instanced_arrays");
+    const gl = canvas.getContext("webgl2", {
+        antialias: false,
+    });
 
     const vertexShader = gl.createShader(gl.VERTEX_SHADER);
     gl.shaderSource(vertexShader, vertexShaderSource);
@@ -780,36 +797,18 @@ async function main() {
 
     // Enable blending
     gl.enable(gl.BLEND);
-
-    // Set blending function
     gl.blendFuncSeparate(
         gl.ONE_MINUS_DST_ALPHA,
         gl.ONE,
         gl.ONE_MINUS_DST_ALPHA,
         gl.ONE,
     );
-
-    // Set blending equation
     gl.blendEquationSeparate(gl.FUNC_ADD, gl.FUNC_ADD);
 
-    // projection
     const u_projection = gl.getUniformLocation(program, "projection");
-    gl.uniformMatrix4fv(u_projection, false, projectionMatrix);
-
-    // viewport
     const u_viewport = gl.getUniformLocation(program, "viewport");
-    gl.uniform2fv(u_viewport, new Float32Array([canvas.width, canvas.height]));
-
-    // focal
     const u_focal = gl.getUniformLocation(program, "focal");
-    gl.uniform2fv(
-        u_focal,
-        new Float32Array([camera.fx / downsample, camera.fy / downsample]),
-    );
-
-    // view
     const u_view = gl.getUniformLocation(program, "view");
-    gl.uniformMatrix4fv(u_view, false, viewMatrix);
 
     // positions
     const triangleVertices = new Float32Array([-2, -2, 2, -2, 2, 2, -2, 2]);
@@ -821,43 +820,40 @@ async function main() {
     gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
     gl.vertexAttribPointer(a_position, 2, gl.FLOAT, false, 0, 0);
 
-    // center
-    const centerBuffer = gl.createBuffer();
-    // gl.bindBuffer(gl.ARRAY_BUFFER, centerBuffer);
-    // gl.bufferData(gl.ARRAY_BUFFER, center, gl.STATIC_DRAW);
-    const a_center = gl.getAttribLocation(program, "center");
-    gl.enableVertexAttribArray(a_center);
-    gl.bindBuffer(gl.ARRAY_BUFFER, centerBuffer);
-    gl.vertexAttribPointer(a_center, 3, gl.FLOAT, false, 0, 0);
-    ext.vertexAttribDivisorANGLE(a_center, 1); // Use the extension here
+    var texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
 
-    // color
-    const colorBuffer = gl.createBuffer();
-    // gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
-    // gl.bufferData(gl.ARRAY_BUFFER, color, gl.STATIC_DRAW);
-    const a_color = gl.getAttribLocation(program, "color");
-    gl.enableVertexAttribArray(a_color);
-    gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
-    gl.vertexAttribPointer(a_color, 4, gl.FLOAT, false, 0, 0);
-    ext.vertexAttribDivisorANGLE(a_color, 1); // Use the extension here
+    var u_textureLocation = gl.getUniformLocation(program, "u_texture");
+    gl.uniform1i(u_textureLocation, 0);
 
-    // cov
-    const covABuffer = gl.createBuffer();
-    const a_covA = gl.getAttribLocation(program, "covA");
-    gl.enableVertexAttribArray(a_covA);
-    gl.bindBuffer(gl.ARRAY_BUFFER, covABuffer);
-    gl.vertexAttribPointer(a_covA, 3, gl.FLOAT, false, 0, 0);
-    ext.vertexAttribDivisorANGLE(a_covA, 1); // Use the extension here
+    const indexBuffer = gl.createBuffer();
+    const a_index = gl.getAttribLocation(program, "index");
+    gl.enableVertexAttribArray(a_index);
+    gl.bindBuffer(gl.ARRAY_BUFFER, indexBuffer);
+    gl.vertexAttribIPointer(a_index, 1, gl.INT, false, 0, 0);
+    gl.vertexAttribDivisor(a_index, 1);
 
-    const covBBuffer = gl.createBuffer();
-    const a_covB = gl.getAttribLocation(program, "covB");
-    gl.enableVertexAttribArray(a_covB);
-    gl.bindBuffer(gl.ARRAY_BUFFER, covBBuffer);
-    gl.vertexAttribPointer(a_covB, 3, gl.FLOAT, false, 0, 0);
-    ext.vertexAttribDivisorANGLE(a_covB, 1); // Use the extension here
+    const resize = () => {
+        gl.uniform2fv(u_focal, new Float32Array([camera.fx, camera.fy]));
 
-    let lastProj = [];
-    let lastData;
+        projectionMatrix = getProjectionMatrix(
+            camera.fx,
+            camera.fy,
+            innerWidth,
+            innerHeight,
+        );
+
+        gl.uniform2fv(u_viewport, new Float32Array([innerWidth, innerHeight]));
+
+        gl.canvas.width = Math.round(innerWidth / downsample);
+        gl.canvas.height = Math.round(innerHeight / downsample);
+        gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+
+        gl.uniformMatrix4fv(u_projection, false, projectionMatrix);
+    };
+
+    window.addEventListener("resize", resize);
+    resize();
 
     worker.onmessage = (e) => {
         if (e.data.buffer) {
@@ -870,26 +866,41 @@ async function main() {
             link.href = URL.createObjectURL(blob);
             document.body.appendChild(link);
             link.click();
-        } else {
-            let { covA, covB, center, color, viewProj } = e.data;
-            lastData = e.data;
+        } else if (e.data.texdata) {
+            const { texdata, texwidth, texheight } = e.data;
+            // console.log(texdata)
+            gl.bindTexture(gl.TEXTURE_2D, texture);
+            gl.texParameteri(
+                gl.TEXTURE_2D,
+                gl.TEXTURE_WRAP_S,
+                gl.CLAMP_TO_EDGE,
+            );
+            gl.texParameteri(
+                gl.TEXTURE_2D,
+                gl.TEXTURE_WRAP_T,
+                gl.CLAMP_TO_EDGE,
+            );
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 
-            activeDownsample = downsample;
-
-            lastProj = viewProj;
-            vertexCount = center.length / 3;
-
-            gl.bindBuffer(gl.ARRAY_BUFFER, centerBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, center, gl.DYNAMIC_DRAW);
-
-            gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, color, gl.DYNAMIC_DRAW);
-
-            gl.bindBuffer(gl.ARRAY_BUFFER, covABuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, covA, gl.DYNAMIC_DRAW);
-
-            gl.bindBuffer(gl.ARRAY_BUFFER, covBBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, covB, gl.DYNAMIC_DRAW);
+            gl.texImage2D(
+                gl.TEXTURE_2D,
+                0,
+                gl.RGBA32UI,
+                texwidth,
+                texheight,
+                0,
+                gl.RGBA_INTEGER,
+                gl.UNSIGNED_INT,
+                texdata,
+            );
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D, texture);
+        } else if (e.data.depthIndex) {
+            const { depthIndex, viewProj } = e.data;
+            gl.bindBuffer(gl.ARRAY_BUFFER, indexBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, depthIndex, gl.DYNAMIC_DRAW);
+            vertexCount = e.data.vertexCount;
         }
     };
 
@@ -1222,10 +1233,9 @@ async function main() {
 
         if (vertexCount > 0) {
             document.getElementById("spinner").style.display = "none";
-            // console.time('render')
             gl.uniformMatrix4fv(u_view, false, actualViewMatrix);
-            ext.drawArraysInstancedANGLE(gl.TRIANGLE_FAN, 0, 4, vertexCount);
-            // console.timeEnd('render')
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, vertexCount);
         } else {
             gl.clear(gl.COLOR_BUFFER_BIT);
             document.getElementById("spinner").style.display = "";
@@ -1304,12 +1314,6 @@ async function main() {
         e.preventDefault();
         e.stopPropagation();
         selectFile(e.dataTransfer.files[0]);
-    });
-
-    window.addEventListener("resize", (e) => {
-        const canvas = document.getElementById("canvas");
-        canvas.width = innerWidth / activeDownsample;
-        canvas.height = innerHeight / activeDownsample;
     });
 
     let bytesRead = 0;
