@@ -56,6 +56,7 @@ touch (mobile)
 other
 - press 0-9 to switch to one of the pre-loaded camera views
 - press `p` to resume default animation
+- drag and drop .ply file to convert to .splat
 
 ## other features
 
