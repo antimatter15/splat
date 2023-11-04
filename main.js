@@ -909,22 +909,22 @@ async function main() {
     window.addEventListener("keydown", (e) => {
         // if (document.activeElement != document.body) return;
         carousel = false;
-        if (!activeKeys.includes(e.key)) activeKeys.push(e.key);
-        if (/\d/.test(e.key)) {
-            viewMatrix = getViewMatrix(cameras[parseInt(e.key)]);
+        if (!activeKeys.includes(e.code)) activeKeys.push(e.code);
+        if (/\d/.test(e.code)) {
+            viewMatrix = getViewMatrix(cameras[parseInt(e.code)]);
         }
-        if (e.key == "v") {
+        if (e.code == "KeyV") {
             location.hash =
                 "#" +
                 JSON.stringify(
                     viewMatrix.map((k) => Math.round(k * 100) / 100),
                 );
-        } else if (e.key === "p") {
+        } else if (e.code === "KeyP") {
             carousel = true;
         }
     });
     window.addEventListener("keyup", (e) => {
-        activeKeys = activeKeys.filter((k) => k !== e.key);
+        activeKeys = activeKeys.filter((k) => k !== e.code);
     });
     window.addEventListener("blur", () => {
         activeKeys = [];
@@ -1166,21 +1166,21 @@ async function main() {
         if (activeKeys.includes("ArrowRight"))
             inv = translate4(inv, 0.03, 0, 0);
         // inv = rotate4(inv, 0.01, 0, 1, 0);
-        if (activeKeys.includes("a")) inv = rotate4(inv, -0.01, 0, 1, 0);
-        if (activeKeys.includes("d")) inv = rotate4(inv, 0.01, 0, 1, 0);
-        if (activeKeys.includes("q")) inv = rotate4(inv, 0.01, 0, 0, 1);
-        if (activeKeys.includes("e")) inv = rotate4(inv, -0.01, 0, 0, 1);
-        if (activeKeys.includes("w")) inv = rotate4(inv, 0.005, 1, 0, 0);
-        if (activeKeys.includes("s")) inv = rotate4(inv, -0.005, 1, 0, 0);
+        if (activeKeys.includes("KeyA")) inv = rotate4(inv, -0.01, 0, 1, 0);
+        if (activeKeys.includes("KeyD")) inv = rotate4(inv, 0.01, 0, 1, 0);
+        if (activeKeys.includes("KeyQ")) inv = rotate4(inv, 0.01, 0, 0, 1);
+        if (activeKeys.includes("KeyE")) inv = rotate4(inv, -0.01, 0, 0, 1);
+        if (activeKeys.includes("KeyW")) inv = rotate4(inv, 0.005, 1, 0, 0);
+        if (activeKeys.includes("KeyS")) inv = rotate4(inv, -0.005, 1, 0, 0);
 
-        if (["j", "k", "l", "i"].some((k) => activeKeys.includes(k))) {
+        if (["KeyJ", "KeyK", "KeyL", "KeyI"].some((k) => activeKeys.includes(k))) {
             let d = 4;
             inv = translate4(inv, 0, 0, d);
             inv = rotate4(
                 inv,
-                activeKeys.includes("j")
+                activeKeys.includes("KeyJ")
                     ? -0.05
-                    : activeKeys.includes("l")
+                    : activeKeys.includes("KeyL")
                     ? 0.05
                     : 0,
                 0,
@@ -1189,9 +1189,9 @@ async function main() {
             );
             inv = rotate4(
                 inv,
-                activeKeys.includes("i")
+                activeKeys.includes("KeyI")
                     ? 0.05
-                    : activeKeys.includes("k")
+                    : activeKeys.includes("KeyK")
                     ? -0.05
                     : 0,
                 1,
@@ -1214,7 +1214,7 @@ async function main() {
             viewMatrix = invert4(inv);
         }
 
-        if (activeKeys.includes(" ")) {
+        if (activeKeys.includes("KeySpace")) {
             jumpDelta = Math.min(1, jumpDelta + 0.05);
         } else {
             jumpDelta = Math.max(0, jumpDelta - 0.05);
