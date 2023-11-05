@@ -155,7 +155,7 @@ let cameras = [
     },
 ];
 
-const camera = cameras[0];
+let camera = cameras[0];
 
 function getProjectionMatrix(fx, fy, width, height) {
     const znear = 0.2;
@@ -911,7 +911,8 @@ async function main() {
         carousel = false;
         if (!activeKeys.includes(e.code)) activeKeys.push(e.code);
         if (/\d/.test(e.key)) {
-            viewMatrix = getViewMatrix(cameras[parseInt(e.key)]);
+            camera = cameras[parseInt(e.key)];
+            viewMatrix = getViewMatrix(camera);
         }
         if (e.code == "KeyV") {
             location.hash =
@@ -1149,6 +1150,8 @@ async function main() {
         console.log("Gamepad disconnected");
     });
 
+    let leftGamepadTrigger, rightGamepadTrigger;
+
     const frame = (now) => {
         let inv = invert4(viewMatrix);
 
@@ -1201,6 +1204,15 @@ async function main() {
                 inv = translate4(inv, 0, 0, -moveSpeed * gamepad.axes[1]);
                 carousel = false;
             }
+            if(gamepad.buttons[12].pressed || gamepad.buttons[13].pressed){
+                inv = translate4(inv, 0, -moveSpeed*(gamepad.buttons[12].pressed - gamepad.buttons[13].pressed), 0);
+                carousel = false;
+            }
+
+            if(gamepad.buttons[14].pressed || gamepad.buttons[15].pressed){
+                inv = translate4(inv, -moveSpeed*(gamepad.buttons[14].pressed - gamepad.buttons[15].pressed), 0, 0);
+                carousel = false;
+            }
 
             // Assuming the right stick controls rotation (axes 2 and 3)
             if (Math.abs(gamepad.axes[2]) > axisThreshold) {
@@ -1217,10 +1229,24 @@ async function main() {
                 inv = rotate4(inv, rotateSpeed * tiltAxis, 0, 0, 1);
                 carousel = false;
             }
-
+            if (gamepad.buttons[4].pressed && !leftGamepadTrigger) {
+                camera = cameras[(cameras.indexOf(camera)+1)%cameras.length]
+                inv = invert4(getViewMatrix(camera));
+                carousel = false;
+            }
+            if (gamepad.buttons[5].pressed && !rightGamepadTrigger) {
+                camera = cameras[(cameras.indexOf(camera)+cameras.length-1)%cameras.length]
+                inv = invert4(getViewMatrix(camera));
+                carousel = false;
+            }
+            leftGamepadTrigger = gamepad.buttons[4].pressed;
+            rightGamepadTrigger = gamepad.buttons[5].pressed;
             if (gamepad.buttons[0].pressed) {
                 isJumping = true;
                 carousel = false;
+            }
+            if(gamepad.buttons[3].pressed){
+                carousel = true;
             }
         }
 
