@@ -910,8 +910,8 @@ async function main() {
         // if (document.activeElement != document.body) return;
         carousel = false;
         if (!activeKeys.includes(e.code)) activeKeys.push(e.code);
-        if (/\d/.test(e.code)) {
-            viewMatrix = getViewMatrix(cameras[parseInt(e.code)]);
+        if (/\d/.test(e.key)) {
+            viewMatrix = getViewMatrix(cameras[parseInt(e.key)]);
         }
         if (e.code == "KeyV") {
             location.hash =
@@ -1139,6 +1139,16 @@ async function main() {
     let avgFps = 0;
     let start = 0;
 
+    window.addEventListener("gamepadconnected", (e) => {
+        const gp = navigator.getGamepads()[e.gamepad.index];
+        console.log(
+            `Gamepad connected at index ${gp.index}: ${gp.id}. It has ${gp.buttons.length} buttons and ${gp.axes.length} axes.`,
+        );
+    });
+    window.addEventListener("gamepaddisconnected", (e) => {
+        console.log("Gamepad disconnected");
+    });
+
     const frame = (now) => {
         let inv = invert4(viewMatrix);
 
@@ -1173,7 +1183,50 @@ async function main() {
         if (activeKeys.includes("KeyW")) inv = rotate4(inv, 0.005, 1, 0, 0);
         if (activeKeys.includes("KeyS")) inv = rotate4(inv, -0.005, 1, 0, 0);
 
-        if (["KeyJ", "KeyK", "KeyL", "KeyI"].some((k) => activeKeys.includes(k))) {
+        const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+        let isJumping = activeKeys.includes("KeySpace");
+        for (let gamepad of gamepads) {
+            if (!gamepad) continue;
+
+            const axisThreshold = 0.1; // Threshold to detect when the axis is intentionally moved
+            const moveSpeed = 0.06;
+            const rotateSpeed = 0.02;
+
+            // Assuming the left stick controls translation (axes 0 and 1)
+            if (Math.abs(gamepad.axes[0]) > axisThreshold) {
+                inv = translate4(inv, moveSpeed * gamepad.axes[0], 0, 0);
+                carousel = false;
+            }
+            if (Math.abs(gamepad.axes[1]) > axisThreshold) {
+                inv = translate4(inv, 0, 0, -moveSpeed * gamepad.axes[1]);
+                carousel = false;
+            }
+
+            // Assuming the right stick controls rotation (axes 2 and 3)
+            if (Math.abs(gamepad.axes[2]) > axisThreshold) {
+                inv = rotate4(inv, rotateSpeed * gamepad.axes[2], 0, 1, 0);
+                carousel = false;
+            }
+            if (Math.abs(gamepad.axes[3]) > axisThreshold) {
+                inv = rotate4(inv, -rotateSpeed * gamepad.axes[3], 1, 0, 0);
+                carousel = false;
+            }
+
+            let tiltAxis = gamepad.buttons[6].value - gamepad.buttons[7].value;
+            if (Math.abs(tiltAxis) > axisThreshold) {
+                inv = rotate4(inv, rotateSpeed * tiltAxis, 0, 0, 1);
+                carousel = false;
+            }
+
+            if (gamepad.buttons[0].pressed) {
+                isJumping = true;
+                carousel = false;
+            }
+        }
+
+        if (
+            ["KeyJ", "KeyK", "KeyL", "KeyI"].some((k) => activeKeys.includes(k))
+        ) {
             let d = 4;
             inv = translate4(inv, 0, 0, d);
             inv = rotate4(
@@ -1214,7 +1267,7 @@ async function main() {
             viewMatrix = invert4(inv);
         }
 
-        if (activeKeys.includes("KeySpace")) {
+        if (isJumping) {
             jumpDelta = Math.min(1, jumpDelta + 0.05);
         } else {
             jumpDelta = Math.max(0, jumpDelta - 0.05);
