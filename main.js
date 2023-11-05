@@ -357,6 +357,28 @@ function createWorker(self) {
             texdata_f[8 * i + 1] = f_buffer[8 * i + 1];
             texdata_f[8 * i + 2] = f_buffer[8 * i + 2];
 
+            let radius = Math.sqrt(f_buffer[8 * i + 0]**2 + f_buffer[8 * i + 1]**2 + f_buffer[8 * i + 2]**2)
+            let scale = [
+                f_buffer[8 * i + 3 + 0],
+                f_buffer[8 * i + 3 + 1],
+                f_buffer[8 * i + 3 + 2],
+            ];
+
+            if(radius > 20){
+                let theta = Math.acos(f_buffer[8 * i + 2] / radius)
+                let phi = (f_buffer[8 * i + 1] > 0 ? 1 : -1) * Math.acos(f_buffer[8 * i + 0] / Math.sqrt(f_buffer[8 * i + 0]**2 + f_buffer[8 * i + 1]**2))
+                let r2 = 100;
+
+                texdata_f[8 * i + 0] = r2 * Math.sin(theta) * Math.cos(phi);
+                texdata_f[8 * i + 1] = r2 * Math.sin(theta) * Math.sin(phi);
+                texdata_f[8 * i + 2] = r2 * Math.cos(theta)
+
+                let sfactor = r2 / radius;
+                scale[0] = scale[0] * sfactor;
+                scale[1] = scale[1] * sfactor;
+                scale[2] = scale[2] * sfactor;
+            }
+
             // r, g, b, a
             texdata_c[4 * (8 * i + 7) + 0] = u_buffer[32 * i + 24 + 0];
             texdata_c[4 * (8 * i + 7) + 1] = u_buffer[32 * i + 24 + 1];
@@ -364,11 +386,7 @@ function createWorker(self) {
             texdata_c[4 * (8 * i + 7) + 3] = u_buffer[32 * i + 24 + 3];
 
             // quaternions
-            let scale = [
-                f_buffer[8 * i + 3 + 0],
-                f_buffer[8 * i + 3 + 1],
-                f_buffer[8 * i + 3 + 2],
-            ];
+            
             let rot = [
                 (u_buffer[32 * i + 28 + 0] - 128) / 128,
                 (u_buffer[32 * i + 28 + 1] - 128) / 128,
