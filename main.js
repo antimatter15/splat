@@ -931,6 +931,8 @@ async function main() {
         activeKeys = [];
     });
 
+    let startX, startY, down, d=4;
+
     window.addEventListener(
         "wheel",
         (e) => {
@@ -962,12 +964,20 @@ async function main() {
                     (-10 * (e.deltaY * scale)) / innerHeight,
                 );
                 inv[13] = preY;
-            } else {
+            } else if (e.altKey) {
                 let d = 4;
                 inv = translate4(inv, 0, 0, d);
                 inv = rotate4(inv, -(e.deltaX * scale) / innerWidth, 0, 1, 0);
                 inv = rotate4(inv, (e.deltaY * scale) / innerHeight, 1, 0, 0);
                 inv = translate4(inv, 0, 0, -d);
+            } else {
+                inv = translate4(
+                    inv,
+                    0,
+                    0,
+                    (e.deltaY * scale) / innerHeight,
+                );
+                d-=(e.deltaY * scale) / innerHeight
             }
 
             viewMatrix = invert4(inv);
@@ -975,13 +985,12 @@ async function main() {
         { passive: false },
     );
 
-    let startX, startY, down;
     canvas.addEventListener("mousedown", (e) => {
         carousel = false;
         e.preventDefault();
         startX = e.clientX;
         startY = e.clientY;
-        down = e.ctrlKey || e.metaKey ? 2 : 1;
+        down = e.ctrlKey || e.metaKey || e.button > 0 ? 2 : 1;
     });
     canvas.addEventListener("contextmenu", (e) => {
         carousel = false;
@@ -997,7 +1006,7 @@ async function main() {
             let inv = invert4(viewMatrix);
             let dx = (5 * (e.clientX - startX)) / innerWidth;
             let dy = (5 * (e.clientY - startY)) / innerHeight;
-            let d = 4;
+            //let d = 4;
 
             inv = translate4(inv, 0, 0, d);
             inv = rotate4(inv, dx, 0, 1, 0);
@@ -1013,14 +1022,14 @@ async function main() {
         } else if (down == 2) {
             let inv = invert4(viewMatrix);
             // inv = rotateY(inv, );
-            let preY = inv[13];
+            //let preY = inv[13];
             inv = translate4(
                 inv,
-                (-10 * (e.clientX - startX)) / innerWidth,
+                (-3 * (e.clientX - startX)) / innerWidth,
+                (-3 * (e.clientY - startY)) / innerHeight,
                 0,
-                (10 * (e.clientY - startY)) / innerHeight,
             );
-            inv[13] = preY;
+            //inv[13] = preY;
             viewMatrix = invert4(inv);
 
             startX = e.clientX;
