@@ -722,23 +722,19 @@ void main () {
 
 `.trim();
 
-let defaultViewMatrix = [
-    0.47, 0.04, 0.88, 0, -0.11, 0.99, 0.02, 0, -0.88, -0.11, 0.47, 0, 0.07,
-    0.03, 6.55, 1,
-];
+let defaultViewMatrix = [-0.02,-0.52,0.85,0,0.5,0.73,0.47,0,-0.87,0.44,0.24,0,0.07,-1.78,5.18,1];
 let viewMatrix = defaultViewMatrix;
 async function main() {
-    let carousel = true;
+    let carousel = true; 
     const params = new URLSearchParams(location.search);
     try {
         viewMatrix = JSON.parse(decodeURIComponent(location.hash.slice(1)));
         carousel = false;
     } catch (err) {}
     const url = new URL(
-        // "nike.splat",
-        // location.href,
-        params.get("url") || "train.splat",
-        "https://huggingface.co/cakewalk/splat-data/resolve/main/",
+        params.get("url") || "chest.splat",
+        //"https://huggingface.co/datasets/Nehc/splats/resolve/main/",
+        location.href+"splats/",
     );
     const req = await fetch(url, {
         mode: "cors", // no-cors, *cors, same-origin

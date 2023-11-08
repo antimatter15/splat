@@ -173,6 +173,15 @@
 				border-radius: 10px;
 				font-size: x-small;
 			}
+			
+			#collections {
+				background: rgba(0,0,0,0.6);
+				white-space: pre-wrap;
+				padding: 10px;
+				border-radius: 10px;
+				font-size: x-small;
+			}
+
 			body.nohf .nohf {
 				display: none;
 			}
@@ -184,6 +193,7 @@
 	<body>
 		<script>
 			if(location.host.includes('hf.space')) document.body.classList.add('nohf');
+			var link = document.getElementById('myLink');	
 		</script>
 		<div id="info">
 			<h3 class="nohf">WebGL 3D Gaussian Splat Viewer</h3>
@@ -199,15 +209,21 @@
 			<details>
 			<summary>Use mouse or arrow keys to navigate.</summary>
 
-<div id="instructions">movement (arrow keys)
+<div id="instructions">Main navigation (mouse+QE)
+- click and drag to orbit
+- middle click and drag up/down to move
+- q/e to correct orbit (roll camera counterclockwise/clockwise)
+
+- press v to hash curent view to url string
+- drag and drop .ply file to convert to .splat
+
+movement (arrow keys)
 - left/right arrow keys to strafe side to side
 - up/down arrow keys to move forward/back
-- space to jump
 
 camera angle (wasd)
 - a/d to turn camera left/right
 - w/s to tilt camera up/down
-- q/e to roll camera counterclockwise/clockwise
 - i/k and j/l to orbit
 
 trackpad
@@ -215,10 +231,6 @@ trackpad
 - pinch to move forward/back
 - ctrl key + scroll to move forward/back
 - shift + scroll to move up/down or strafe
-
-mouse
-- click and drag to orbit
-- right click (or ctrl/cmd key) and drag up/down to move
 
 touch (mobile)
 - one finger to orbit
@@ -232,11 +244,53 @@ gamepad
 other
 - press 0-9 to switch to one of the pre-loaded camera views
 - press p to resume default animation
-- drag and drop .ply file to convert to .splat
 </div>
 
 		</details>
-			
+		<details>		  	
+			<summary>My collections.</summary>
+
+<div id="collections"></div>
+	<script>
+		var home = location.href.split('?')[0]
+		var store = "splats/";
+		// Функция для чтения CSV-файла
+    	function readCSV(file, callback) {
+      		var request = new XMLHttpRequest();
+      		request.open("GET", file, true);
+      		request.onreadystatechange = function() {
+        	if (request.readyState === 4 && request.status === 200) {
+          		var data = request.responseText;
+          		callback(data);
+        		}
+      		};
+      		request.send();
+    	}
+		// Функция для создания HTML из CSV данных
+		function createHTMLFromCSV(csvData) {
+			var lines = csvData.split("\n");
+      		var outputDiv = document.getElementById("collections");
+      		var html = '';
+      
+      		for (var i = 0; i < lines.length; i++) {
+        		var parts = lines[i].split(";");
+        		if (parts.length === 3) {
+          			var title = parts[0];
+          			var filename = parts[1];
+          			var params = parts[2];
+          
+          			// Создаем HTML для каждой строки данных
+          			html += '<a class="myLink" href="'+ home + "?url=" + store + filename + '#' + params + '">' + title + '</a><br>';
+        		}
+      		}
+      		// Вставляем созданный HTML в элемент с id "output"
+      		outputDiv.innerHTML = html;
+    	}
+    	// Читаем CSV-файл и создаем HTML
+    	readCSV(store+"all.csv", createHTMLFromCSV);		
+  	</script>		  
+
+		</details>
 		</div>
 
 		<div id="progress"></div>
