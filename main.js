@@ -987,45 +987,46 @@ async function main() {
         startX = e.clientX;
         startY = e.clientY;
         down = e.ctrlKey || e.metaKey || e.button > 0 ? 2 : 1;
+        down = e.button == 2 ? 3 : down;
     });
     canvas.addEventListener("contextmenu", (e) => {
         carousel = false;
         e.preventDefault();
-        startX = e.clientX;
-        startY = e.clientY;
-        down = 2;
     });
 
     canvas.addEventListener("mousemove", (e) => {
         e.preventDefault();
+        let inv = invert4(viewMatrix);
         if (down == 1) {
-            let inv = invert4(viewMatrix);
             let dx = (5 * (e.clientX - startX)) / innerWidth;
             let dy = (5 * (e.clientY - startY)) / innerHeight;
-            //let d = 4;
 
             inv = translate4(inv, 0, 0, d);
             inv = rotate4(inv, dx, 0, 1, 0);
             inv = rotate4(inv, -dy, 1, 0, 0);
             inv = translate4(inv, 0, 0, -d);
-            // let postAngle = Math.atan2(inv[0], inv[10])
-            // inv = rotate4(inv, postAngle - preAngle, 0, 0, 1)
-            // console.log(postAngle)
             viewMatrix = invert4(inv);
 
             startX = e.clientX;
             startY = e.clientY;
+
         } else if (down == 2) {
-            let inv = invert4(viewMatrix);
-            // inv = rotateY(inv, );
-            //let preY = inv[13];
             inv = translate4(
                 inv,
                 (-3 * (e.clientX - startX)) / innerWidth,
                 (-3 * (e.clientY - startY)) / innerHeight,
                 0,
             );
-            //inv[13] = preY;
+            viewMatrix = invert4(inv);
+
+            startX = e.clientX;
+            startY = e.clientY;
+
+        } else if (down == 3) {
+            let dx = (5 * (e.clientX - startX)) / innerWidth;
+            let dy = (5 * (e.clientY - startY)) / innerHeight;
+            inv = rotate4(inv, dx, 0, 1, 0);
+            inv = rotate4(inv, -dy, 1, 0, 0);
             viewMatrix = invert4(inv);
 
             startX = e.clientX;
@@ -1073,8 +1074,6 @@ async function main() {
 
                 let d = 4;
                 inv = translate4(inv, 0, 0, d);
-                // inv = translate4(inv,  -x, -y, -z);
-                // inv = translate4(inv,  x, y, z);
                 inv = rotate4(inv, dx, 0, 1, 0);
                 inv = rotate4(inv, -dy, 1, 0, 0);
                 inv = translate4(inv, 0, 0, -d);
@@ -1160,36 +1159,18 @@ async function main() {
     const frame = (now) => {
         let inv = invert4(viewMatrix);
 
-        if (activeKeys.includes("ArrowUp")) {
-            if (activeKeys.includes("Shift")) {
-                inv = translate4(inv, 0, -0.03, 0);
-            } else {
-                let preY = inv[13];
-                inv = translate4(inv, 0, 0, 0.1);
-                inv[13] = preY;
-            }
-        }
-        if (activeKeys.includes("ArrowDown")) {
-            if (activeKeys.includes("Shift")) {
-                inv = translate4(inv, 0, 0.03, 0);
-            } else {
-                let preY = inv[13];
-                inv = translate4(inv, 0, 0, -0.1);
-                inv[13] = preY;
-            }
-        }
-        if (activeKeys.includes("ArrowLeft"))
-            inv = translate4(inv, -0.03, 0, 0);
-        //
-        if (activeKeys.includes("ArrowRight"))
-            inv = translate4(inv, 0.03, 0, 0);
-        // inv = rotate4(inv, 0.01, 0, 1, 0);
-        if (activeKeys.includes("KeyA")) inv = rotate4(inv, -0.01, 0, 1, 0);
-        if (activeKeys.includes("KeyD")) inv = rotate4(inv, 0.01, 0, 1, 0);
+        if (activeKeys.includes("ArrowLeft")) inv = rotate4(inv, -0.01, 0, 1, 0);
+        if (activeKeys.includes("ArrowRight")) inv = rotate4(inv, 0.01, 0, 1, 0);
+        if (activeKeys.includes("ArrowUp")) inv = rotate4(inv, 0.005, 1, 0, 0);
+        if (activeKeys.includes("ArrowDown")) inv = rotate4(inv, -0.005, 1, 0, 0);
+
+        if (activeKeys.includes("KeyW")) inv = translate4(inv, 0, 0, 0.1);
+        if (activeKeys.includes("KeyA")) inv = translate4(inv, -0.03, 0, 0);
+        if (activeKeys.includes("KeyS")) inv = translate4(inv, 0, 0, -0.1);
+        if (activeKeys.includes("KeyD")) inv = translate4(inv, 0.03, 0, 0);
+
         if (activeKeys.includes("KeyQ")) inv = rotate4(inv, 0.01, 0, 0, 1);
         if (activeKeys.includes("KeyE")) inv = rotate4(inv, -0.01, 0, 0, 1);
-        if (activeKeys.includes("KeyW")) inv = rotate4(inv, 0.005, 1, 0, 0);
-        if (activeKeys.includes("KeyS")) inv = rotate4(inv, -0.005, 1, 0, 0);
 
         const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
         let isJumping = activeKeys.includes("KeySpace");
