@@ -905,15 +905,25 @@ async function main() {
     };
 
     let activeKeys = [];
+	let currentCameraIndex = 0;
 
     window.addEventListener("keydown", (e) => {
         // if (document.activeElement != document.body) return;
         carousel = false;
         if (!activeKeys.includes(e.code)) activeKeys.push(e.code);
         if (/\d/.test(e.key)) {
-            camera = cameras[parseInt(e.key)];
+            currentCameraIndex = parseInt(e.key)
+            camera = cameras[currentCameraIndex];
             viewMatrix = getViewMatrix(camera);
         }
+		if (['-', '_'].includes(e.key)){
+			currentCameraIndex = (currentCameraIndex + cameras.length - 1) % cameras.length;
+			viewMatrix = getViewMatrix(cameras[currentCameraIndex]);
+		}
+		if (['+', '='].includes(e.key)){
+			currentCameraIndex = (currentCameraIndex + 1) % cameras.length;
+			viewMatrix = getViewMatrix(cameras[currentCameraIndex]);
+		}
         if (e.code == "KeyV") {
             location.hash =
                 "#" +
