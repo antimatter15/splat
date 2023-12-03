@@ -954,14 +954,14 @@ async function main() {
             } else if (e.ctrlKey || e.metaKey) {
                 // inv = rotate4(inv,  (e.deltaX * scale) / innerWidth,  0, 0, 1);
                 // inv = translate4(inv,  0, (e.deltaY * scale) / innerHeight, 0);
-                let preY = inv[13];
+                // let preY = inv[13];
                 inv = translate4(
                     inv,
                     0,
                     0,
                     (-10 * (e.deltaY * scale)) / innerHeight,
                 );
-                inv[13] = preY;
+                // inv[13] = preY;
             } else {
                 let d = 4;
                 inv = translate4(inv, 0, 0, d);
@@ -1013,14 +1013,14 @@ async function main() {
         } else if (down == 2) {
             let inv = invert4(viewMatrix);
             // inv = rotateY(inv, );
-            let preY = inv[13];
+            // let preY = inv[13];
             inv = translate4(
                 inv,
                 (-10 * (e.clientX - startX)) / innerWidth,
                 0,
                 (10 * (e.clientY - startY)) / innerHeight,
             );
-            inv[13] = preY;
+            // inv[13] = preY;
             viewMatrix = invert4(inv);
 
             startX = e.clientX;
@@ -1108,9 +1108,9 @@ async function main() {
 
                 inv = translate4(inv, -dx / innerWidth, -dy / innerHeight, 0);
 
-                let preY = inv[13];
+                // let preY = inv[13];
                 inv = translate4(inv, 0, 0, 3 * (1 - dscale));
-                inv[13] = preY;
+                // inv[13] = preY;
 
                 viewMatrix = invert4(inv);
 
@@ -1154,23 +1154,20 @@ async function main() {
 
     const frame = (now) => {
         let inv = invert4(viewMatrix);
+        let shiftKey = activeKeys.includes("Shift") || activeKeys.includes("ShiftLeft") || activeKeys.includes("ShiftRight")
 
         if (activeKeys.includes("ArrowUp")) {
-            if (activeKeys.includes("Shift")) {
+            if (shiftKey) {
                 inv = translate4(inv, 0, -0.03, 0);
             } else {
-                let preY = inv[13];
                 inv = translate4(inv, 0, 0, 0.1);
-                inv[13] = preY;
             }
         }
         if (activeKeys.includes("ArrowDown")) {
-            if (activeKeys.includes("Shift")) {
+            if (shiftKey) {
                 inv = translate4(inv, 0, 0.03, 0);
             } else {
-                let preY = inv[13];
                 inv = translate4(inv, 0, 0, -0.1);
-                inv[13] = preY;
             }
         }
         if (activeKeys.includes("ArrowLeft"))
@@ -1187,7 +1184,7 @@ async function main() {
         if (activeKeys.includes("KeyS")) inv = rotate4(inv, -0.005, 1, 0, 0);
 
         const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
-        let isJumping = activeKeys.includes("KeySpace");
+        let isJumping = activeKeys.includes("Space");
         for (let gamepad of gamepads) {
             if (!gamepad) continue;
 
@@ -1280,7 +1277,6 @@ async function main() {
             inv = translate4(inv, 0, 0, -d);
         }
 
-        // inv[13] = preY;
         viewMatrix = invert4(inv);
 
         if (carousel) {
@@ -1300,7 +1296,7 @@ async function main() {
         }
 
         let inv2 = invert4(viewMatrix);
-        inv2[13] -= jumpDelta;
+        inv2 = translate4(inv2, 0, -jumpDelta, 0);
         inv2 = rotate4(inv2, -0.1 * jumpDelta, 1, 0, 0);
         let actualViewMatrix = invert4(inv2);
 
