@@ -184,6 +184,15 @@ function getViewMatrix(camera) {
     ].flat();
     return camToWorld;
 }
+// function translate4(a, x, y, z) {
+//     return [
+//         ...a.slice(0, 12),
+//         a[0] * x + a[4] * y + a[8] * z + a[12],
+//         a[1] * x + a[5] * y + a[9] * z + a[13],
+//         a[2] * x + a[6] * y + a[10] * z + a[14],
+//         a[3] * x + a[7] * y + a[11] * z + a[15],
+//     ];
+// }
 
 function multiply4(a, b) {
     return [
@@ -766,6 +775,8 @@ async function main() {
 
     const canvas = document.getElementById("canvas");
     const fps = document.getElementById("fps");
+    const camid = document.getElementById("camid");
+
     let projectionMatrix;
 
     const gl = canvas.getContext("webgl2", {
@@ -905,23 +916,36 @@ async function main() {
     };
 
     let activeKeys = [];
+	let currentCameraIndex = 0;
 
     window.addEventListener("keydown", (e) => {
         // if (document.activeElement != document.body) return;
         carousel = false;
         if (!activeKeys.includes(e.code)) activeKeys.push(e.code);
         if (/\d/.test(e.key)) {
-            camera = cameras[parseInt(e.key)];
+            currentCameraIndex = parseInt(e.key)
+            camera = cameras[currentCameraIndex];
             viewMatrix = getViewMatrix(camera);
         }
+		if (['-', '_'].includes(e.key)){
+			currentCameraIndex = (currentCameraIndex + cameras.length - 1) % cameras.length;
+			viewMatrix = getViewMatrix(cameras[currentCameraIndex]);
+		}
+		if (['+', '='].includes(e.key)){
+			currentCameraIndex = (currentCameraIndex + 1) % cameras.length;
+			viewMatrix = getViewMatrix(cameras[currentCameraIndex]);
+		}
+        camid.innerText = "cam  " + currentCameraIndex;
         if (e.code == "KeyV") {
             location.hash =
                 "#" +
                 JSON.stringify(
                     viewMatrix.map((k) => Math.round(k * 100) / 100),
                 );
+                camid.innerText =""
         } else if (e.code === "KeyP") {
             carousel = true;
+            camid.innerText =""
         }
     });
     window.addEventListener("keyup", (e) => {
@@ -1323,6 +1347,9 @@ async function main() {
             document.getElementById("progress").style.display = "none";
         }
         fps.innerText = Math.round(avgFps) + " fps";
+        if (isNaN(currentCameraIndex)){
+            camid.innerText = "";
+        }
         lastFrame = now;
         requestAnimationFrame(frame);
     };

@@ -46,8 +46,10 @@ touch (mobile)
 
 other
 - press 0-9 to switch to one of the pre-loaded camera views
+- press '-' or '+'key to cycle loaded cameras
 - press `p` to resume default animation
 - drag and drop .ply file to convert to .splat
+- drag and drop cameras.json to load cameras
 
 ## other features
 

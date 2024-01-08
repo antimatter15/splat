@@ -156,6 +156,12 @@
 				right: 10px;
 			}
 
+			#caminfo {
+				position: absolute;
+				top: 10px;
+				z-index: 999;
+				right: 10px;
+			}
 			#canvas {
 				display: block;
 				position: absolute;
@@ -231,8 +237,10 @@ gamepad
 
 other
 - press 0-9 to switch to one of the pre-loaded camera views
+- press '-' or '+'key to cycle loaded cameras
 - press p to resume default animation
 - drag and drop .ply file to convert to .splat
+- drag and drop cameras.json to load cameras
 </div>
 
 		</details>
@@ -260,6 +268,9 @@ other
 
 		<div id="quality">
 			<span id="fps"></span>
+		</div>
+		<div id="caminfo">
+			<span id="camid"></span>
 		</div>
 		<script src="main.js"></script>
 	</body>
