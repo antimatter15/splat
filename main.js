@@ -661,6 +661,7 @@ uniform highp usampler2D u_texture;
 uniform mat4 projection, view;
 uniform vec2 focal;
 uniform vec2 viewport;
+uniform float splat_scale;
 
 in vec2 position;
 in int index;
@@ -707,8 +708,8 @@ void main () {
     vec2 vCenter = vec2(pos2d) / pos2d.w;
     gl_Position = vec4(
         vCenter 
-        + position.x * majorAxis / viewport 
-        + position.y * minorAxis / viewport, 0.0, 1.0);
+        + position.x * majorAxis * splat_scale / viewport 
+        + position.y * minorAxis * splat_scale / viewport, 0.0, 1.0);
 
 }
 `.trim();
@@ -820,6 +821,10 @@ async function main() {
     const u_viewport = gl.getUniformLocation(program, "viewport");
     const u_focal = gl.getUniformLocation(program, "focal");
     const u_view = gl.getUniformLocation(program, "view");
+    const u_splat_scale = gl.getUniformLocation(program, "splat_scale");
+
+    let splat_scale = 1.0;
+    gl.uniform1f(u_splat_scale, splat_scale);
 
     // positions
     const triangleVertices = new Float32Array([-2, -2, 2, -2, 2, 2, -2, 2]);
@@ -1299,6 +1304,15 @@ async function main() {
                 0,
             );
             inv = translate4(inv, 0, 0, -d);
+        }
+
+        if (activeKeys.includes("KeyN")) {
+            splat_scale = Math.max(0.1, splat_scale - 0.01);
+            gl.uniform1f(u_splat_scale, splat_scale);
+        }
+        if (activeKeys.includes("KeyM")) {
+            splat_scale = Math.min(2, splat_scale + 0.01);
+            gl.uniform1f(u_splat_scale, splat_scale);
         }
 
         viewMatrix = invert4(inv);
