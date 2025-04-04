@@ -743,12 +743,14 @@ async function main() {
         viewMatrix = JSON.parse(decodeURIComponent(location.hash.slice(1)));
         carousel = false;
     } catch (err) {}
-    const url = new URL(
-        // "nike.splat",
-        // location.href,
-        params.get("url") || "train.splat",
-        "https://huggingface.co/cakewalk/splat-data/resolve/main/",
-    );
+    // const url = new URL(
+    //     // "innolight.splat",
+    //     // location.href,
+    //     params.get("url") || "innolight.splat",
+    //     "https://huggingface.co/cakewalk/splat-data/resolve/main/",
+    // );
+    const url = params.get("url") || "innolight.splat";
+
     const req = await fetch(url, {
         mode: "cors", // no-cors, *cors, same-origin
         credentials: "omit", // include, *same-origin, omit
