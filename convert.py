@@ -17,34 +17,35 @@ def process_ply_to_splat(ply_file_path):
     buffer = BytesIO()
     for idx in sorted_indices:
         v = plydata["vertex"][idx]
-        # Position (3 floats)
         position = np.array([v["x"], v["y"], v["z"]], dtype=np.float32)
-        # Scales (3 floats, using exponentiation as in original)
-        scales = np.exp(np.array([v["scale_0"], v["scale_1"], v["scale_2"]], dtype=np.float32))
-        # Rotation (4 floats)
-        rot = np.array([v["rot_0"], v["rot_1"], v["rot_2"], v["rot_3"]], dtype=np.float32)
-        
-        # Build the full spherical harmonic coefficients array (48 floats)
-        sh_coeffs = []
-        # First three coefficients (f_dc_0, f_dc_1, f_dc_2)
-        sh_coeffs.extend([v["f_dc_0"], v["f_dc_1"], v["f_dc_2"]])
-        # Next 45 coefficients (f_rest_0 to f_rest_44)
-        for i in range(45):
-            sh_coeffs.append(v[f"f_rest_{i}"])
-        sh_array = np.array(sh_coeffs, dtype=np.float32)
-        
-        # Write the data in order:
-        buffer.write(position.tobytes())  # 12 bytes
-        buffer.write(scales.tobytes())    # 12 bytes
-        buffer.write(sh_array.tobytes())    # 48*4 = 192 bytes
-        # Write rotation, quantized as before (4 bytes)
+        scales = np.exp(
+            np.array(
+                [v["scale_0"], v["scale_1"], v["scale_2"]],
+                dtype=np.float32,
+            )
+        )
+        rot = np.array(
+            [v["rot_0"], v["rot_1"], v["rot_2"], v["rot_3"]],
+            dtype=np.float32,
+        )
+        SH_C0 = 0.28209479177387814
+        color = np.array(
+            [
+                0.5 + SH_C0 * v["f_dc_0"],
+                0.5 + SH_C0 * v["f_dc_1"],
+                0.5 + SH_C0 * v["f_dc_2"],
+                1 / (1 + np.exp(-v["opacity"])),
+            ]
+        )
+        buffer.write(position.tobytes())
+        buffer.write(scales.tobytes())
+        buffer.write((color * 255).clip(0, 255).astype(np.uint8).tobytes())
         buffer.write(
             ((rot / np.linalg.norm(rot)) * 128 + 128)
             .clip(0, 255)
             .astype(np.uint8)
             .tobytes()
         )
-
 
     return buffer.getvalue()
 
