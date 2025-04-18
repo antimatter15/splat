@@ -157,6 +157,14 @@ let cameras = [
 
 let camera = cameras[0];
 
+/**
+ * Creates a projection matrix for 3D to 2D projection
+ * @param {number} fx - Focal length x
+ * @param {number} fy - Focal length y
+ * @param {number} width - Viewport width
+ * @param {number} height - Viewport height
+ * @returns {number[]} 4x4 projection matrix as flat array
+ */
 function getProjectionMatrix(fx, fy, width, height) {
     const znear = 0.2;
     const zfar = 200;
@@ -168,6 +176,11 @@ function getProjectionMatrix(fx, fy, width, height) {
     ].flat();
 }
 
+/**
+ * Creates a view matrix from camera parameters
+ * @param {Object} camera - Camera object with rotation and position
+ * @returns {number[]} 4x4 view matrix as flat array
+ */
 function getViewMatrix(camera) {
     const R = camera.rotation.flat();
     const t = camera.position;
@@ -184,16 +197,13 @@ function getViewMatrix(camera) {
     ].flat();
     return camToWorld;
 }
-// function translate4(a, x, y, z) {
-//     return [
-//         ...a.slice(0, 12),
-//         a[0] * x + a[4] * y + a[8] * z + a[12],
-//         a[1] * x + a[5] * y + a[9] * z + a[13],
-//         a[2] * x + a[6] * y + a[10] * z + a[14],
-//         a[3] * x + a[7] * y + a[11] * z + a[15],
-//     ];
-// }
 
+/**
+ * Multiplies two 4x4 matrices
+ * @param {number[]} a - First 4x4 matrix as flat array
+ * @param {number[]} b - Second 4x4 matrix as flat array
+ * @returns {number[]} Resulting 4x4 matrix as flat array
+ */
 function multiply4(a, b) {
     return [
         b[0] * a[0] + b[1] * a[4] + b[2] * a[8] + b[3] * a[12],
@@ -215,6 +225,11 @@ function multiply4(a, b) {
     ];
 }
 
+/**
+ * Inverts a 4x4 matrix
+ * @param {number[]} a - 4x4 matrix as flat array
+ * @returns {number[]|null} Inverted 4x4 matrix as flat array, or null if not invertible
+ */
 function invert4(a) {
     let b00 = a[0] * a[5] - a[1] * a[4];
     let b01 = a[0] * a[6] - a[2] * a[4];
@@ -251,6 +266,15 @@ function invert4(a) {
     ];
 }
 
+/**
+ * Rotates a 4x4 matrix around an axis
+ * @param {number[]} a - 4x4 matrix as flat array
+ * @param {number} rad - Rotation angle in radians
+ * @param {number} x - X component of rotation axis
+ * @param {number} y - Y component of rotation axis
+ * @param {number} z - Z component of rotation axis
+ * @returns {number[]} Rotated 4x4 matrix as flat array
+ */
 function rotate4(a, rad, x, y, z) {
     let len = Math.hypot(x, y, z);
     x /= len;
@@ -285,6 +309,14 @@ function rotate4(a, rad, x, y, z) {
     ];
 }
 
+/**
+ * Translates a 4x4 matrix
+ * @param {number[]} a - 4x4 matrix as flat array
+ * @param {number} x - X translation
+ * @param {number} y - Y translation
+ * @param {number} z - Z translation
+ * @returns {number[]} Translated 4x4 matrix as flat array
+ */
 function translate4(a, x, y, z) {
     return [
         ...a.slice(0, 12),
@@ -295,6 +327,10 @@ function translate4(a, x, y, z) {
     ];
 }
 
+/**
+ * Creates a WebGL worker for processing 3D data
+ * @param {Object} self - Worker context
+ */
 function createWorker(self) {
     let buffer;
     let vertexCount = 0;
@@ -312,6 +348,11 @@ function createWorker(self) {
     var _floatView = new Float32Array(1);
     var _int32View = new Int32Array(_floatView.buffer);
 
+    /**
+     * Converts a 32-bit float to 16-bit half precision
+     * @param {number} float - 32-bit float value
+     * @returns {number} 16-bit half precision value
+     */
     function floatToHalf(float) {
         _floatView[0] = float;
         var f = _int32View[0];
@@ -341,10 +382,19 @@ function createWorker(self) {
         return (sign << 15) | (newExp << 10) | (frac >> 13);
     }
 
+    /**
+     * Packs two 16-bit half precision values into a 32-bit integer
+     * @param {number} x - First half precision value
+     * @param {number} y - Second half precision value
+     * @returns {number} Packed 32-bit integer
+     */
     function packHalf2x16(x, y) {
         return (floatToHalf(x) | (floatToHalf(y) << 16)) >>> 0;
     }
 
+    /**
+     * Generates a texture from the current buffer data
+     */
     function generateTexture() {
         if (!buffer) return;
         const f_buffer = new Float32Array(buffer);
@@ -417,6 +467,10 @@ function createWorker(self) {
         self.postMessage({ texdata, texwidth, texheight }, [texdata.buffer]);
     }
 
+    /**
+     * Sorts vertices based on view projection
+     * @param {number[]} viewProj - View-projection matrix
+     */
     function runSort(viewProj) {
         if (!buffer) return;
         const f_buffer = new Float32Array(buffer);
@@ -471,6 +525,11 @@ function createWorker(self) {
         ]);
     }
 
+    /**
+     * Processes a PLY format buffer
+     * @param {ArrayBuffer} inputBuffer - PLY file data
+     * @returns {ArrayBuffer} Processed buffer
+     */
     function processPlyBuffer(inputBuffer) {
         const ubuf = new Uint8Array(inputBuffer);
         // 10KB ought to be enough for a header...
@@ -618,6 +677,9 @@ function createWorker(self) {
         return buffer;
     }
 
+    /**
+     * Throttled version of the sort function
+     */
     const throttledSort = () => {
         if (!sortRunning) {
             sortRunning = true;
@@ -736,6 +798,10 @@ let defaultViewMatrix = [
     0.03, 6.55, 1,
 ];
 let viewMatrix = defaultViewMatrix;
+
+/**
+ * Main function that initializes and runs the 3D viewer
+ */
 async function main() {
     let carousel = true;
     const params = new URLSearchParams(location.search);
@@ -746,7 +812,7 @@ async function main() {
     const url = new URL(
         // "innolight.splat",
         // location.href,
-        params.get("url") || "innolight.splat",
+        params.get("url") || "innolight.ply",
         "https://huggingface.co/datasets/jwt625/splat/resolve/main/",
     );
     // const url = params.get("url") || "innolight.splat";
@@ -846,6 +912,9 @@ async function main() {
     gl.vertexAttribIPointer(a_index, 1, gl.INT, false, 0, 0);
     gl.vertexAttribDivisor(a_index, 1);
 
+    /**
+     * Handles window resize events
+     */
     const resize = () => {
         gl.uniform2fv(u_focal, new Float32Array([camera.fx, camera.fy]));
 
@@ -1181,6 +1250,10 @@ async function main() {
 
     let leftGamepadTrigger, rightGamepadTrigger;
 
+    /**
+     * Main render loop
+     * @param {number} now - Current timestamp
+     */
     const frame = (now) => {
         let inv = invert4(viewMatrix);
         let shiftKey =
@@ -1383,12 +1456,21 @@ async function main() {
 
     frame();
 
+    /**
+     * Checks if data is in PLY format
+     * @param {Uint8Array} splatData - Data to check
+     * @returns {boolean} True if data is PLY format
+     */
     const isPly = (splatData) =>
         splatData[0] == 112 &&
         splatData[1] == 108 &&
         splatData[2] == 121 &&
         splatData[3] == 10;
 
+    /**
+     * Handles file selection and loading
+     * @param {File} file - Selected file
+     */
     const selectFile = (file) => {
         const fr = new FileReader();
         if (/\.json$/i.test(file.name)) {
@@ -1433,6 +1515,10 @@ async function main() {
         } catch (err) {}
     });
 
+    /**
+     * Prevents default browser behavior
+     * @param {Event} e - Event to prevent
+     */
     const preventDefault = (e) => {
         e.preventDefault();
         e.stopPropagation();
