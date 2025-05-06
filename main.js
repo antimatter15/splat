@@ -1344,10 +1344,11 @@ vec3 evaluateSH(vec3 dir) {
 }
 
 void main() {
-    // Gaussian splatting alpha calculation
-    float A = -dot(vPosition, vPosition);
-    if (A < -4.0) discard;
-    float alpha = exp(A) * vColor.a;
+    // Calculate distance from center for alpha
+    float d = length(vPosition);
+    if (d > 1.0) {
+        discard;
+    }
     
     // Calculate view direction for SH evaluation
     vec3 viewDir = normalize(vViewDir);
