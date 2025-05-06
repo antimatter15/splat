@@ -402,25 +402,42 @@ function createWorker(self) {
      * @param {number} shOrder - SH order (0-3)
      */
     function generateSHTexture(shBuffer, shOrder) {
-        if (!shBuffer || shOrder <= 0) return;
+        if (!shBuffer || shOrder <= 0) {
+            console.log(`Worker: Cannot generate SH texture. Buffer exists: ${!!shBuffer}, SH Order: ${shOrder}`);
+            return;
+        }
         
-        console.log(`Worker: Generating SH texture for order ${shOrder}`);
+        console.log(`Worker: Generating SH texture for order ${shOrder}, buffer size: ${shBuffer.byteLength} bytes`);
         
         // Calculate number of coefficients based on SH order
         const numCoeffs = (shOrder + 1) * (shOrder + 1);
         const numChannels = 3; // RGB
         const coeffsPerGaussian = numCoeffs * numChannels;
         
+        console.log(`Worker: SH coefficients per gaussian: ${coeffsPerGaussian} (${numCoeffs} coeffs × ${numChannels} channels)`);
+        
         // Create Float32Array view of the SH buffer
         const shData = new Float32Array(shBuffer);
+        console.log(`Worker: SH data length: ${shData.length}, expected per vertex: ${shData.length / vertexCount}`);
         
         // Calculate texture dimensions
         const texelsPerGaussian = Math.ceil(coeffsPerGaussian / 4);
         const texwidth = 1024; // Adjust as needed
         const texheight = Math.ceil((texelsPerGaussian * vertexCount) / texwidth);
         
+        console.log(`Worker: Creating SH texture with dimensions ${texwidth}x${texheight}, texels per gaussian: ${texelsPerGaussian}`);
+        
         // Create texture data array
         const texdata = new Float32Array(texwidth * texheight * 4);
+        
+        // Sample some SH coefficients for debugging
+        if (vertexCount > 0 && shData.length > 0) {
+            console.log(`Worker: First vertex SH coefficients sample:`);
+            const sampleSize = Math.min(coeffsPerGaussian, 12); // Show at most 12 coefficients
+            for (let j = 0; j < sampleSize; j++) {
+                console.log(`  Coeff ${j}: ${shData[j]}`);
+            }
+        }
         
         // Fill texture with SH coefficients
         for (let i = 0; i < vertexCount; i++) {
@@ -430,12 +447,20 @@ function createWorker(self) {
                 const texelOffset = (i * texelsPerGaussian + texelIdx) * 4 + channelIdx;
                 
                 if (j < shData.length / vertexCount) {
-                    texdata[texelOffset] = shData[i * (shData.length / vertexCount) + j];
+                    const dataIdx = i * (shData.length / vertexCount) + j;
+                    texdata[texelOffset] = shData[dataIdx];
+                    
+                    // Debug first few vertices
+                    if (i < 2 && j < 3) {
+                        console.log(`Worker: Vertex ${i}, Coeff ${j}: ${shData[dataIdx]} → texel[${texelOffset}]`);
+                    }
                 } else {
                     texdata[texelOffset] = 0.0; // Pad with zeros if needed
                 }
             }
         }
+        
+        console.log(`Worker: SH texture generation complete, sending back to main thread`);
         
         // Send the texture data back to the main thread
         self.postMessage({ 
@@ -455,7 +480,10 @@ function createWorker(self) {
         
         // Generate SH texture if SH data is available
         if (shArrayBuffer && actualShOrder > 0) {
+            console.log(`Generating SH texture in main thread. Buffer size: ${shArrayBuffer.byteLength}, SH Order: ${actualShOrder}`);
             generateSHTexture(shArrayBuffer, actualShOrder);
+        } else {
+            console.log(`No SH texture generation. shArrayBuffer: ${!!shArrayBuffer}, actualShOrder: ${actualShOrder}`);
         }
 
         var texwidth = 1024 * 2; // Set to your desired width
@@ -772,11 +800,33 @@ function createWorker(self) {
             // Handle SH data
             shArrayBuffer = e.data.shData;
             actualShOrder = e.data.shOrder || 0;
-            console.log(`Worker received SH data for order ${actualShOrder}`);
+            console.log(`Worker received SH data for order ${actualShOrder}, buffer size: ${shArrayBuffer.byteLength} bytes, vertexCount: ${vertexCount}`);
+            
+            // Log SH data details
+            if (shArrayBuffer) {
+                const shData = new Float32Array(shArrayBuffer);
+                console.log(`Worker: SH data array length: ${shData.length}`);
+                if (vertexCount > 0) {
+                    console.log(`Worker: Expected SH coefficients per vertex: ${shData.length / vertexCount}`);
+                    
+                    // Check if the data size matches expectations
+                    const expectedCoeffs = (actualShOrder + 1) * (actualShOrder + 1) * 3; // 3 channels (RGB)
+                    const actualCoeffsPerVertex = shData.length / vertexCount;
+                    console.log(`Worker: Expected coefficients per vertex for SH order ${actualShOrder}: ${expectedCoeffs}`);
+                    console.log(`Worker: Actual coefficients per vertex: ${actualCoeffsPerVertex}`);
+                    
+                    if (Math.abs(expectedCoeffs - actualCoeffsPerVertex) > 0.01) {
+                        console.warn(`Worker: Mismatch in SH coefficients! Expected ${expectedCoeffs} but got ${actualCoeffsPerVertex}`);
+                    }
+                }
+            }
             
             // Generate SH texture if we have vertex data
             if (vertexCount > 0 && actualShOrder > 0) {
+                console.log(`Worker: Calling generateSHTexture with order ${actualShOrder}`);
                 generateSHTexture(shArrayBuffer, actualShOrder);
+            } else {
+                console.log(`Worker: Not generating SH texture yet. vertexCount: ${vertexCount}, actualShOrder: ${actualShOrder}`);
             }
         }
     };
@@ -1115,6 +1165,14 @@ vec3 evaluateSH(vec3 dir) {
     return color;
 }
 
+// Debug function to visualize SH order
+vec3 getDebugColor(float order) {
+    if (order < 0.5) return vec3(1.0, 0.0, 0.0); // Red for order 0
+    if (order < 1.5) return vec3(0.0, 1.0, 0.0); // Green for order 1
+    if (order < 2.5) return vec3(0.0, 0.0, 1.0); // Blue for order 2
+    return vec3(1.0, 1.0, 0.0);                  // Yellow for order 3
+}
+
 void main () {
     // Gaussian splatting alpha calculation
     float A = -dot(vPosition, vPosition);
@@ -1125,12 +1183,33 @@ void main () {
     vec3 viewDir = normalize(vViewDir);
     vec3 shColor;
     
-    // If SH order is 0, just use the base color (for backward compatibility)
-    if (vSHOrder < 0.5) {
-        shColor = vColor.rgb;
+    // Debug: Visualize SH coefficients
+    bool debugMode = false; // Set to true to enable debug visualization
+    
+    if (debugMode) {
+        // Debug visualization mode
+        if (vSHOrder < 0.5) {
+            // For order 0, show base color
+            shColor = vColor.rgb;
+        } else {
+            // For higher orders, show a color based on the SH order
+            shColor = getDebugColor(vSHOrder);
+            
+            // Mix in some coefficient visualization
+            if (vSHOrder >= 1.0) {
+                // Show 1st order coefficients
+                shColor = mix(shColor, abs(vec3(vSH_1_0.r, vSH_1_1.g, vSH_1_2.b)), 0.5);
+            }
+        }
     } else {
-        // Evaluate SH and add 0.5 offset (same as in the conversion)
-        shColor = evaluateSH(viewDir) + vec3(0.5);
+        // Normal rendering mode
+        // If SH order is 0, just use the base color (for backward compatibility)
+        if (vSHOrder < 0.5) {
+            shColor = vColor.rgb;
+        } else {
+            // Evaluate SH and add 0.5 offset (same as in the conversion)
+            shColor = evaluateSH(viewDir) + vec3(0.5);
+        }
     }
     
     // Final color with alpha
@@ -1210,13 +1289,42 @@ async function main() {
             
             if (shReq.ok) {
                 shArrayBuffer = await shReq.arrayBuffer();
+                console.log(`Loaded SH data file with size: ${shArrayBuffer.byteLength} bytes`);
+                
                 // Read the SH order from the header (first 4 bytes)
                 const headerView = new DataView(shArrayBuffer);
                 actualShOrder = headerView.getInt32(0, true);
                 console.log(`Loaded SH data with order: ${actualShOrder}`);
                 
                 // Remove the header from the data
+                const originalSize = shArrayBuffer.byteLength;
                 shArrayBuffer = shArrayBuffer.slice(4);
+                console.log(`Removed header: new buffer size is ${shArrayBuffer.byteLength} bytes (was ${originalSize})`);
+                
+                // Analyze the SH data
+                const shData = new Float32Array(shArrayBuffer);
+                console.log(`SH data contains ${shData.length} float values`);
+                
+                // Calculate expected values
+                if (vertexCount > 0) {
+                    const coeffsPerVertex = shData.length / vertexCount;
+                    const expectedCoeffs = (actualShOrder + 1) * (actualShOrder + 1) * 3; // RGB
+                    console.log(`SH coefficients per vertex: ${coeffsPerVertex.toFixed(2)}`);
+                    console.log(`Expected coefficients for order ${actualShOrder}: ${expectedCoeffs}`);
+                    
+                    if (Math.abs(coeffsPerVertex - expectedCoeffs) > 0.01) {
+                        console.warn(`Mismatch in SH coefficients! Expected ${expectedCoeffs} but got ${coeffsPerVertex}`);
+                    }
+                    
+                    // Sample some values
+                    console.log("Sample of first few SH coefficients:");
+                    const sampleSize = Math.min(12, shData.length);
+                    for (let i = 0; i < sampleSize; i++) {
+                        console.log(`  Coeff ${i}: ${shData[i]}`);
+                    }
+                } else {
+                    console.log("Cannot analyze SH data per vertex: vertexCount is 0");
+                }
             } else {
                 console.warn(`No SH data found at ${shUrl}, using order 0`);
             }
@@ -1350,6 +1458,7 @@ async function main() {
         
         // Set SH order uniform
         gl.uniform1f(u_shOrder, actualShOrder);
+        console.log(`Setting shader uniform shOrder to ${actualShOrder}`);
 
         gl.canvas.width = Math.round(innerWidth / downsample);
         gl.canvas.height = Math.round(innerHeight / downsample);
@@ -1392,19 +1501,35 @@ async function main() {
             console.log(`Received SH texture from worker: ${shTexwidth}x${shTexheight}`);
             
             // Upload SH texture to GPU
+            console.log(`Uploading SH texture to GPU: ${shTexwidth}x${shTexheight}, ${shTexdata.length} values`);
+            
+            // Sample some texture values for debugging
+            console.log("Sample of SH texture data:");
+            const sampleSize = Math.min(16, shTexdata.length);
+            for (let i = 0; i < sampleSize; i += 4) {
+                console.log(`  Texel ${i/4}: [${shTexdata[i].toFixed(4)}, ${shTexdata[i+1].toFixed(4)}, ${shTexdata[i+2].toFixed(4)}, ${shTexdata[i+3].toFixed(4)}]`);
+            }
+            
             gl.activeTexture(gl.TEXTURE1);
             gl.bindTexture(gl.TEXTURE_2D, shTexture);
-            gl.texImage2D(
-                gl.TEXTURE_2D,
-                0,
-                gl.RGBA32F,
-                shTexwidth,
-                shTexheight,
-                0,
-                gl.RGBA,
-                gl.FLOAT,
-                shTexdata
-            );
+            console.log("Binding SH texture to TEXTURE1");
+            
+            try {
+                gl.texImage2D(
+                    gl.TEXTURE_2D,
+                    0,
+                    gl.RGBA32F,
+                    shTexwidth,
+                    shTexheight,
+                    0,
+                    gl.RGBA,
+                    gl.FLOAT,
+                    shTexdata
+                );
+                console.log("Successfully uploaded SH texture to GPU");
+            } catch (err) {
+                console.error(`Error uploading SH texture to GPU: ${err}`);
+            }
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
