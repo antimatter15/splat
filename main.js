@@ -344,6 +344,8 @@ function createWorker(self) {
     let lastProj = [];
     let depthIndex = new Uint32Array();
     let lastVertexCount = 0;
+    let shArrayBuffer = null;
+    let actualShOrder = 0;
 
     var _floatView = new Float32Array(1);
     var _int32View = new Int32Array(_floatView.buffer);
@@ -392,11 +394,17 @@ function createWorker(self) {
         return (floatToHalf(x) | (floatToHalf(y) << 16)) >>> 0;
     }
 
+    // SH texture generation is now handled by the worker
+
     /**
      * Generates a texture for SH coefficients
+     * @param {ArrayBuffer} shBuffer - Buffer containing SH coefficients
+     * @param {number} shOrder - SH order (0-3)
      */
     function generateSHTexture(shBuffer, shOrder) {
-        console.log(`Generating SH texture for order ${shOrder}`);
+        if (!shBuffer || shOrder <= 0) return;
+        
+        console.log(`Worker: Generating SH texture for order ${shOrder}`);
         
         // Calculate number of coefficients based on SH order
         const numCoeffs = (shOrder + 1) * (shOrder + 1);
@@ -407,8 +415,6 @@ function createWorker(self) {
         const shData = new Float32Array(shBuffer);
         
         // Calculate texture dimensions
-        // Each coefficient needs a float (4 bytes)
-        // We'll use RGBA32F format, so each texel can store 4 floats
         const texelsPerGaussian = Math.ceil(coeffsPerGaussian / 4);
         const texwidth = 1024; // Adjust as needed
         const texheight = Math.ceil((texelsPerGaussian * vertexCount) / texwidth);
@@ -431,22 +437,12 @@ function createWorker(self) {
             }
         }
         
-        // Upload texture to GPU
-        gl.activeTexture(gl.TEXTURE1);
-        gl.bindTexture(gl.TEXTURE_2D, shTexture);
-        gl.texImage2D(
-            gl.TEXTURE_2D,
-            0,
-            gl.RGBA32F,
-            texwidth,
-            texheight,
-            0,
-            gl.RGBA,
-            gl.FLOAT,
-            texdata
-        );
-        
-        console.log(`SH texture generated: ${texwidth}x${texheight}`);
+        // Send the texture data back to the main thread
+        self.postMessage({ 
+            shTexdata: texdata, 
+            shTexwidth: texwidth, 
+            shTexheight: texheight 
+        }, [texdata.buffer]);
     }
 
     /**
@@ -772,6 +768,16 @@ function createWorker(self) {
         } else if (e.data.view) {
             viewProj = e.data.view;
             throttledSort();
+        } else if (e.data.shData) {
+            // Handle SH data
+            shArrayBuffer = e.data.shData;
+            actualShOrder = e.data.shOrder || 0;
+            console.log(`Worker received SH data for order ${actualShOrder}`);
+            
+            // Generate SH texture if we have vertex data
+            if (vertexCount > 0 && actualShOrder > 0) {
+                generateSHTexture(shArrayBuffer, actualShOrder);
+            }
         }
     };
 }
@@ -1368,6 +1374,42 @@ async function main() {
                 document.body.appendChild(link);
                 link.click();
             }
+            
+            // Send SH data to worker if available
+            if (shArrayBuffer && actualShOrder > 0) {
+                console.log("Sending SH data to worker");
+                worker.postMessage({
+                    shData: shArrayBuffer,
+                    shOrder: actualShOrder
+                }, [shArrayBuffer]);
+                
+                // We've transferred the buffer, so set it to null to avoid reusing it
+                shArrayBuffer = null;
+            }
+        } else if (e.data.shTexdata) {
+            // Handle SH texture data from worker
+            const { shTexdata, shTexwidth, shTexheight } = e.data;
+            console.log(`Received SH texture from worker: ${shTexwidth}x${shTexheight}`);
+            
+            // Upload SH texture to GPU
+            gl.activeTexture(gl.TEXTURE1);
+            gl.bindTexture(gl.TEXTURE_2D, shTexture);
+            gl.texImage2D(
+                gl.TEXTURE_2D,
+                0,
+                gl.RGBA32F,
+                shTexwidth,
+                shTexheight,
+                0,
+                gl.RGBA,
+                gl.FLOAT,
+                shTexdata
+            );
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            
         } else if (e.data.texdata) {
             const { texdata, texwidth, texheight } = e.data;
             // console.log(texdata)
