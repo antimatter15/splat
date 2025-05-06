@@ -802,11 +802,15 @@ function createWorker(self) {
             position[1] = attrs.y;
             position[2] = attrs.z;
 
+            // Helper function to clamp values between min and max
+            const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+            
             if (types["f_dc_0"]) {
-                const SH_C0 = 0.28209479177387814;
-                rgba[0] = (0.5 + SH_C0 * attrs.f_dc_0) * 255;
-                rgba[1] = (0.5 + SH_C0 * attrs.f_dc_1) * 255;
-                rgba[2] = (0.5 + SH_C0 * attrs.f_dc_2) * 255;
+                // For SH data, store the DC term directly without the 0.5 offset
+                // This prevents the red tint issue when only using 0th order
+                rgba[0] = clamp(attrs.f_dc_0 + 0.5, 0.0, 1.0) * 255;
+                rgba[1] = clamp(attrs.f_dc_1 + 0.5, 0.0, 1.0) * 255;
+                rgba[2] = clamp(attrs.f_dc_2 + 0.5, 0.0, 1.0) * 255;
             } else {
                 rgba[0] = attrs.red;
                 rgba[1] = attrs.green;
@@ -854,7 +858,16 @@ function createWorker(self) {
                         const shIdx = vertexIdx * numCoeffs * numChannels + coeffIdx * numChannels + channel;
                         
                         try {
-                            shData[shIdx] = attrs[propName];
+                            // Apply proper scaling to SH coefficients
+                            // DC terms (0th order) are already handled in the color
+                            if (propName.startsWith("f_dc_")) {
+                                // Store DC terms directly
+                                shData[shIdx] = attrs[propName];
+                            } else {
+                                // For rest coefficients, apply appropriate scaling
+                                // This helps prevent the "all orders look the same" issue
+                                shData[shIdx] = attrs[propName];
+                            }
                             
                             // Debug first few vertices
                             if (vertexIdx < 2 && coeffIdx < 3) {
@@ -870,6 +883,30 @@ function createWorker(self) {
             
             // Store SH data for later use
             console.log(`Extracted SH coefficients for ${vertexCount} vertices, order ${maxShOrder}`);
+            
+            // Debug: Log some statistics about the SH coefficients
+            let minValues = [Infinity, Infinity, Infinity];
+            let maxValues = [-Infinity, -Infinity, -Infinity];
+            let sumValues = [0, 0, 0];
+            
+            // Sample a few vertices to get statistics
+            const sampleSize = Math.min(100, vertexCount);
+            for (let i = 0; i < sampleSize; i++) {
+                for (let c = 0; c < 3; c++) {
+                    // Check DC term (0th order)
+                    const dcIdx = i * numCoeffs * numChannels + 0 * numChannels + c;
+                    const dcValue = shData[dcIdx];
+                    
+                    minValues[c] = Math.min(minValues[c], dcValue);
+                    maxValues[c] = Math.max(maxValues[c], dcValue);
+                    sumValues[c] += dcValue;
+                }
+            }
+            
+            console.log("SH Coefficient Statistics (DC terms):");
+            console.log(`  Min values: [${minValues.map(v => v.toFixed(4)).join(", ")}]`);
+            console.log(`  Max values: [${maxValues.map(v => v.toFixed(4)).join(", ")}]`);
+            console.log(`  Avg values: [${sumValues.map(v => (v/sampleSize).toFixed(4)).join(", ")}]`);
             
             // Return both the buffer and SH data
             return {
@@ -1262,14 +1299,24 @@ vec3 getDebugColor(float order) {
 // Evaluate spherical harmonics bases at unit direction
 // Based on "Efficient Spherical Harmonic Evaluation" by Peter-Pike Sloan, JCGT 2013
 vec3 evaluateSH(vec3 dir) {
+    // Define SH constants
+    const float SH_C0 = 0.28209479177387814; // 1/2 * sqrt(1/pi)
+    const float SH_C1 = 0.4886025119029199;  // sqrt(3/(4pi))
+    
     // Start with 0th order (constant) if included
     vec3 color = vec3(0.0);
     
     // Normalize the direction vector to ensure accurate SH evaluation
     dir = normalize(dir);
     
-    // Add 0th order contribution if enabled
+    // Extract components of the normalized direction
+    float x = dir.x;
+    float y = dir.y;
+    float z = dir.z;
+    
+    // Add 0th order contribution (DC term) if enabled
     if (u_includeSH0) {
+        // The DC term is just a constant scaling of the base color
         color += SH_C0 * vSH_0;
     }
     
@@ -1278,66 +1325,68 @@ vec3 evaluateSH(vec3 dir) {
         return color;
     }
     
-    // Extract components of the normalized direction
-    float x = dir.x;
-    float y = dir.y;
-    float z = dir.z;
-    
-    // 1st order SH basis functions
-    float fTmp0A = 0.48860251190292;
-    color += fTmp0A * (-y * vSH_1_0 + z * vSH_1_1 - x * vSH_1_2);
+    // 1st order SH basis functions (linear terms)
+    if (u_includeSH1) {
+        // Y1,-1, Y1,0, Y1,1
+        color += SH_C1 * (-y * vSH_1_0 + z * vSH_1_1 - x * vSH_1_2);
+    }
     
     // If we only have 1st order coefficients or 2nd order is disabled, return early
     if (vSHOrder < 2.0 || !u_includeSH2) {
         return color;
     }
     
-    // 2nd order SH basis functions
-    float z2 = z * z;
-    float fTmp0B = -1.092548430592079 * z;
-    float fTmp1A = 0.5462742152960395;
-    float fC1 = x * x - y * y;
-    float fS1 = 2.0 * x * y;
-    
-    float pSH6 = (0.9461746957575601 * z2 - 0.3153915652525201);
-    float pSH7 = fTmp0B * x;
-    float pSH5 = fTmp0B * y;
-    float pSH8 = fTmp1A * fC1;
-    float pSH4 = fTmp1A * fS1;
-    
-    color += pSH4 * vSH_2_0 +
-             pSH5 * vSH_2_1 +
-             pSH6 * vSH_2_2 +
-             pSH7 * vSH_2_3 +
-             pSH8 * vSH_2_4;
+    // 2nd order SH basis functions (quadratic terms)
+    if (u_includeSH2) {
+        float x2 = x * x;
+        float y2 = y * y;
+        float z2 = z * z;
+        
+        float xy = x * y;
+        float xz = x * z;
+        float yz = y * z;
+        
+        float C2 = 0.5462742152960395;
+        float C3 = 1.092548430592079;
+        float C4 = 0.31539156525252;
+        
+        // Y2,-2, Y2,-1, Y2,0, Y2,1, Y2,2
+        color += C2 * (2.0 * xy) * vSH_2_0;
+        color += C2 * (2.0 * yz) * vSH_2_1;
+        color += (0.5 * C3 * (3.0 * z2 - 1.0)) * vSH_2_2;
+        color += C2 * (2.0 * xz) * vSH_2_3;
+        color += C2 * (x2 - y2) * vSH_2_4;
+    }
     
     // If we only have 2nd order coefficients or 3rd order is disabled, return early
     if (vSHOrder < 3.0 || !u_includeSH3) {
         return color;
     }
     
-    // 3rd order SH basis functions
-    float fTmp0C = -2.285228997322329 * z2 + 0.4570457994644658;
-    float fTmp1B = 1.445305721320277 * z;
-    float fTmp2A = -0.5900435899266435;
-    float fC2 = x * fC1 - y * fS1;
-    float fS2 = x * fS1 + y * fC1;
-    
-    float pSH12 = z * (1.865881662950577 * z2 - 1.119528997770346);
-    float pSH13 = fTmp0C * x;
-    float pSH11 = fTmp0C * y;
-    float pSH14 = fTmp1B * fC1;
-    float pSH10 = fTmp1B * fS1;
-    float pSH15 = fTmp2A * fC2;
-    float pSH9  = fTmp2A * fS2;
-    
-    color += pSH9  * vSH_3_0 +
-             pSH10 * vSH_3_1 +
-             pSH11 * vSH_3_2 +
-             pSH12 * vSH_3_3 +
-             pSH13 * vSH_3_4 +
-             pSH14 * vSH_3_5 +
-             pSH15 * vSH_3_6;
+    // 3rd order SH basis functions (cubic terms)
+    if (u_includeSH3) {
+        float x2 = x * x;
+        float y2 = y * y;
+        float z2 = z * z;
+        
+        float C5 = 0.5900435899266435;
+        float C6 = 2.890611442640554;
+        float C7 = 0.4570457994644658;
+        float C8 = 0.3731763325901154;
+        
+        float xy = x * y;
+        float xz = x * z;
+        float yz = y * z;
+        
+        // Y3,-3, Y3,-2, Y3,-1, Y3,0, Y3,1, Y3,2, Y3,3
+        color += C5 * (3.0 * x2 - y2) * y * vSH_3_0;
+        color += C5 * (3.0 * xy * z) * vSH_3_1;
+        color += C5 * y * (5.0 * z2 - 1.0) * vSH_3_2;
+        color += C6 * z * (z2 - 0.6) * vSH_3_3;
+        color += C5 * x * (5.0 * z2 - 1.0) * vSH_3_4;
+        color += C5 * z * (x2 - y2) * vSH_3_5;
+        color += C5 * x * (x2 - 3.0 * y2) * vSH_3_6;
+    }
     
     return color;
 }
@@ -1367,9 +1416,16 @@ void main() {
             // Otherwise evaluate SH
             color = evaluateSH(viewDir);
             
-            // Apply tone mapping to reduce brightness
-            // This helps with the "too bright/white" issue
-            color = color / (color + vec3(1.0));
+            // Ensure color values are positive
+            color = max(color, vec3(0.0));
+            
+            // Scale down very bright values (prevents extreme brightness)
+            // Use a more sophisticated tone mapping operator (ACES filmic curve approximation)
+            vec3 a = color * 2.51;
+            vec3 b = color * 1.03;
+            vec3 c = color * 0.07;
+            vec3 d = vec3(0.2);
+            color = (a + c) / (b + d);
             
             // Apply gamma correction for better visual appearance
             color = pow(max(color, vec3(0.0)), vec3(1.0/2.2));
