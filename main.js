@@ -638,10 +638,10 @@ function createWorker(self) {
             ushort: "getUint16",
             uchar: "getUint8",
         };
-        for (let prop of header
-            .slice(0, header_end_index)
-            .split("\n")
-            .filter((k) => k.startsWith("property "))) {
+        
+        // Parse header to get property types and offsets
+        const headerLines = header.slice(0, header_end_index).split("\n");
+        for (let prop of headerLines.filter((k) => k.startsWith("property "))) {
             const [p, type, name] = prop.split(" ");
             const arrayType = TYPE_MAP[type] || "getInt8";
             types[name] = arrayType;
@@ -649,6 +649,69 @@ function createWorker(self) {
             row_offset += parseInt(arrayType.replace(/[^\d]/g, "")) / 8;
         }
         console.log("Bytes per row", row_offset, types, offsets);
+        
+        // Detect SH coefficients in the PLY file
+        let maxShOrder = 0;
+        let shCoeffNames = [];
+        
+        // Check for SH coefficient properties (f_dc_X, f_rest_X)
+        if (types["f_dc_0"] && types["f_dc_1"] && types["f_dc_2"]) {
+            maxShOrder = 0; // At least 0th order
+            shCoeffNames.push("f_dc_0", "f_dc_1", "f_dc_2");
+            
+            // Check for 1st order coefficients
+            if (types["f_rest_0"] && types["f_rest_1"] && types["f_rest_2"] && 
+                types["f_rest_3"] && types["f_rest_4"] && types["f_rest_5"] && 
+                types["f_rest_6"] && types["f_rest_7"] && types["f_rest_8"]) {
+                maxShOrder = 1;
+                for (let i = 0; i < 9; i++) {
+                    shCoeffNames.push(`f_rest_${i}`);
+                }
+                
+                // Check for 2nd order coefficients
+                if (types["f_rest_9"] && types["f_rest_10"] && types["f_rest_11"] && 
+                    types["f_rest_12"] && types["f_rest_13"] && types["f_rest_14"] && 
+                    types["f_rest_15"] && types["f_rest_16"] && types["f_rest_17"] && 
+                    types["f_rest_18"] && types["f_rest_19"] && types["f_rest_20"] && 
+                    types["f_rest_21"] && types["f_rest_22"] && types["f_rest_23"]) {
+                    maxShOrder = 2;
+                    for (let i = 9; i < 24; i++) {
+                        shCoeffNames.push(`f_rest_${i}`);
+                    }
+                    
+                    // Check for 3rd order coefficients
+                    if (types["f_rest_24"] && types["f_rest_25"] && types["f_rest_26"] && 
+                        types["f_rest_27"] && types["f_rest_28"] && types["f_rest_29"] && 
+                        types["f_rest_30"] && types["f_rest_31"] && types["f_rest_32"] && 
+                        types["f_rest_33"] && types["f_rest_34"] && types["f_rest_35"] && 
+                        types["f_rest_36"] && types["f_rest_37"] && types["f_rest_38"] && 
+                        types["f_rest_39"] && types["f_rest_40"] && types["f_rest_41"] && 
+                        types["f_rest_42"] && types["f_rest_43"] && types["f_rest_44"] && 
+                        types["f_rest_45"] && types["f_rest_46"] && types["f_rest_47"]) {
+                        maxShOrder = 3;
+                        for (let i = 24; i < 48; i++) {
+                            shCoeffNames.push(`f_rest_${i}`);
+                        }
+                    }
+                }
+            }
+        }
+        
+        console.log(`Detected SH coefficients up to order ${maxShOrder} in PLY file`);
+        console.log(`Found ${shCoeffNames.length} SH coefficient properties`);
+
+        // Create SH data buffer if SH coefficients are found
+        let shArrayBuffer = null;
+        let actualShOrder = maxShOrder;
+        
+        if (maxShOrder > 0 && shCoeffNames.length > 3) {
+            // Create SH buffer to store all coefficients
+            const numCoeffs = (maxShOrder + 1) * (maxShOrder + 1);
+            const numChannels = 3; // RGB
+            const totalCoeffs = numCoeffs * numChannels * vertexCount;
+            shArrayBuffer = new ArrayBuffer(totalCoeffs * 4); // 4 bytes per float
+            console.log(`Creating SH buffer for order ${maxShOrder} with ${totalCoeffs} total coefficients`);
+        }
 
         let dataView = new DataView(
             inputBuffer,
@@ -760,7 +823,71 @@ function createWorker(self) {
             }
         }
         console.timeEnd("build buffer");
-        return buffer;
+        
+        // Extract SH coefficients if available
+        if (shArrayBuffer && maxShOrder > 0) {
+            console.time("extract SH coefficients");
+            const shData = new Float32Array(shArrayBuffer);
+            const numCoeffs = (maxShOrder + 1) * (maxShOrder + 1);
+            const numChannels = 3; // RGB
+            
+            // Map from PLY property names to SH coefficient indices
+            const shPropertyMap = {
+                // 0th order (DC)
+                "f_dc_0": [0, 0], // [coefficient index, color channel]
+                "f_dc_1": [0, 1],
+                "f_dc_2": [0, 2],
+            };
+            
+            // Map rest coefficients (1st-3rd order)
+            let restIndex = 1; // Start after DC terms
+            for (let i = 0; i < 48; i++) { // Max 48 rest coefficients (16 per channel)
+                const channel = i % 3;
+                const coeffIndex = Math.floor(i / 3) + 1; // +1 because we start after DC
+                shPropertyMap[`f_rest_${i}`] = [coeffIndex, channel];
+            }
+            
+            // Extract coefficients for each vertex
+            for (let vertexIdx = 0; vertexIdx < vertexCount; vertexIdx++) {
+                row = sizeIndex[vertexIdx]; // Use sorted order
+                
+                // Process each SH coefficient
+                for (const propName of shCoeffNames) {
+                    if (types[propName]) {
+                        const [coeffIdx, channel] = shPropertyMap[propName];
+                        const shIdx = vertexIdx * numCoeffs * numChannels + coeffIdx * numChannels + channel;
+                        
+                        try {
+                            shData[shIdx] = attrs[propName];
+                            
+                            // Debug first few vertices
+                            if (vertexIdx < 2 && coeffIdx < 3) {
+                                console.log(`Vertex ${vertexIdx}, ${propName} → SH[${coeffIdx},${channel}] = ${shData[shIdx]}`);
+                            }
+                        } catch (e) {
+                            console.warn(`Error extracting ${propName} for vertex ${vertexIdx}: ${e.message}`);
+                        }
+                    }
+                }
+            }
+            console.timeEnd("extract SH coefficients");
+            
+            // Store SH data for later use
+            console.log(`Extracted SH coefficients for ${vertexCount} vertices, order ${maxShOrder}`);
+            
+            // Return both the buffer and SH data
+            return {
+                buffer: buffer,
+                shArrayBuffer: shArrayBuffer,
+                shOrder: maxShOrder
+            };
+        }
+        
+        return {
+            buffer: buffer,
+            shArrayBuffer: null,
+            shOrder: 0
+        };
     }
 
     /**
@@ -785,9 +912,40 @@ function createWorker(self) {
         if (e.data.ply) {
             vertexCount = 0;
             runSort(viewProj);
-            buffer = processPlyBuffer(e.data.ply);
+            
+            // Process PLY buffer and extract SH data if available
+            const result = processPlyBuffer(e.data.ply);
+            buffer = result.buffer;
             vertexCount = Math.floor(buffer.byteLength / rowLength);
-            postMessage({ buffer: buffer, save: !!e.data.save });
+            
+            // Handle SH data if available
+            if (result.shArrayBuffer && result.shOrder > 0) {
+                shArrayBuffer = result.shArrayBuffer;
+                actualShOrder = result.shOrder;
+                console.log(`Worker: Extracted SH data from PLY, order ${actualShOrder}, buffer size: ${shArrayBuffer.byteLength} bytes`);
+                
+                // Send buffer first
+                postMessage({ 
+                    buffer: buffer, 
+                    save: !!e.data.save,
+                    hasSH: true,
+                    shOrder: actualShOrder
+                });
+                
+                // Generate SH texture
+                if (vertexCount > 0) {
+                    console.log(`Worker: Generating SH texture from extracted data, order ${actualShOrder}`);
+                    generateSHTexture(shArrayBuffer, actualShOrder);
+                }
+            } else {
+                // No SH data
+                postMessage({ 
+                    buffer: buffer, 
+                    save: !!e.data.save,
+                    hasSH: false,
+                    shOrder: 0
+                });
+            }
         } else if (e.data.buffer) {
             buffer = e.data.buffer;
             vertexCount = e.data.vertexCount;
@@ -1085,19 +1243,39 @@ in vec3 vSH_3_4;
 in vec3 vSH_3_5;
 in vec3 vSH_3_6;
 
+// Uniforms for SH order inclusion
+uniform bool u_includeSH0;
+uniform bool u_includeSH1;
+uniform bool u_includeSH2;
+uniform bool u_includeSH3;
+uniform int u_debugMode; // 0=normal, 1=show SH orders as colors
+
 out vec4 fragColor;
 
 // SH constants
 const float SH_C0 = 0.28209479177387814;
 
+// Debug function to visualize SH order
+vec3 getDebugColor(float order) {
+    if (order < 0.5) return vec3(1.0, 0.0, 0.0); // Red for order 0
+    if (order < 1.5) return vec3(0.0, 1.0, 0.0); // Green for order 1
+    if (order < 2.5) return vec3(0.0, 0.0, 1.0); // Blue for order 2
+    return vec3(1.0, 1.0, 0.0);                  // Yellow for order 3
+}
+
 // Evaluate spherical harmonics bases at unit direction
 // Based on "Efficient Spherical Harmonic Evaluation" by Peter-Pike Sloan, JCGT 2013
 vec3 evaluateSH(vec3 dir) {
-    // Start with 0th order (constant)
-    vec3 color = SH_C0 * vSH_0;
+    // Start with 0th order (constant) if included
+    vec3 color = vec3(0.0);
     
-    // If we only have 0th order coefficients, return early
-    if (vSHOrder < 1.0) {
+    // Add 0th order contribution if enabled
+    if (u_includeSH0) {
+        color += SH_C0 * vSH_0;
+    }
+    
+    // If we only have 0th order coefficients or 1st order is disabled, return early
+    if (vSHOrder < 1.0 || !u_includeSH1) {
         return color;
     }
     
@@ -1110,8 +1288,8 @@ vec3 evaluateSH(vec3 dir) {
     float fTmp0A = 0.48860251190292;
     color += fTmp0A * (-y * vSH_1_0 + z * vSH_1_1 - x * vSH_1_2);
     
-    // If we only have 1st order coefficients, return early
-    if (vSHOrder < 2.0) {
+    // If we only have 1st order coefficients or 2nd order is disabled, return early
+    if (vSHOrder < 2.0 || !u_includeSH2) {
         return color;
     }
     
@@ -1134,8 +1312,8 @@ vec3 evaluateSH(vec3 dir) {
              pSH7 * vSH_2_3 +
              pSH8 * vSH_2_4;
     
-    // If we only have 2nd order coefficients, return early
-    if (vSHOrder < 3.0) {
+    // If we only have 2nd order coefficients or 3rd order is disabled, return early
+    if (vSHOrder < 3.0 || !u_includeSH3) {
         return color;
     }
     
@@ -1165,13 +1343,40 @@ vec3 evaluateSH(vec3 dir) {
     return color;
 }
 
-// Debug function to visualize SH order
-vec3 getDebugColor(float order) {
-    if (order < 0.5) return vec3(1.0, 0.0, 0.0); // Red for order 0
-    if (order < 1.5) return vec3(0.0, 1.0, 0.0); // Green for order 1
-    if (order < 2.5) return vec3(0.0, 0.0, 1.0); // Blue for order 2
-    return vec3(1.0, 1.0, 0.0);                  // Yellow for order 3
+void main() {
+    float d = length(vPosition);
+    if (d > 1.0) {
+        discard;
+    }
+    
+    // Calculate view direction for SH evaluation
+    vec3 viewDir = normalize(vViewDir);
+    
+    // Evaluate SH based on view direction
+    vec3 color;
+    
+    if (u_debugMode == 1) {
+        // Debug mode: show SH order as color
+        color = getDebugColor(vSHOrder);
+    } else {
+        // Normal mode: evaluate SH
+        if (vSHOrder < 0.5) {
+            // If no SH data, use base color
+            color = vColor.rgb;
+        } else {
+            // Otherwise evaluate SH
+            color = evaluateSH(viewDir);
+            
+            // Clamp to valid range
+            color = clamp(color, 0.0, 1.0);
+        }
+    }
+    
+    // Apply opacity
+    float opacity = vColor.a * (1.0 - d * d);
+    fragColor = vec4(color, opacity);
 }
+`;
 
 void main () {
     // Gaussian splatting alpha calculation
@@ -1253,6 +1458,58 @@ async function main() {
             
             // Reload the page with the new SH order
             window.location.search = newParams.toString();
+        });
+    }
+    
+    // Set up event listeners for SH order inclusion checkboxes
+    const shIncludeCheckboxes = [
+        document.getElementById("sh-include-0"),
+        document.getElementById("sh-include-1"),
+        document.getElementById("sh-include-2"),
+        document.getElementById("sh-include-3")
+    ];
+    
+    // Initialize debug mode variable
+    let debugMode = 0;
+    
+    // Add event listeners to checkboxes
+    shIncludeCheckboxes.forEach((checkbox, index) => {
+        if (checkbox) {
+            checkbox.addEventListener("change", (e) => {
+                const isChecked = e.target.checked;
+                console.log(`Setting SH order ${index} inclusion to ${isChecked}`);
+                
+                // We'll update the uniforms in the render loop
+            });
+        }
+    });
+    
+    // Add debug mode toggle to the UI
+    const qualityDiv = document.getElementById("quality");
+    if (qualityDiv) {
+        const debugDiv = document.createElement("div");
+        debugDiv.style.marginTop = "5px";
+        
+        const debugCheckbox = document.createElement("input");
+        debugCheckbox.type = "checkbox";
+        debugCheckbox.id = "debug-mode";
+        
+        const debugLabel = document.createElement("label");
+        debugLabel.htmlFor = "debug-mode";
+        debugLabel.style.fontSize = "small";
+        debugLabel.style.color = "white";
+        debugLabel.textContent = " Debug Mode (Show SH Order)";
+        
+        debugDiv.appendChild(debugCheckbox);
+        debugDiv.appendChild(debugLabel);
+        qualityDiv.appendChild(debugDiv);
+        
+        // Add event listener for debug mode
+        debugCheckbox.addEventListener("change", (e) => {
+            debugMode = e.target.checked ? 1 : 0;
+            console.log(`Setting debug mode to ${debugMode}`);
+            
+            // We'll update the uniform in the render loop
         });
     }
     
@@ -1484,9 +1741,22 @@ async function main() {
                 link.click();
             }
             
-            // Send SH data to worker if available
-            if (shArrayBuffer && actualShOrder > 0) {
-                console.log("Sending SH data to worker");
+            // Update SH order from PLY data if available
+            if (e.data.hasSH) {
+                console.log(`Received SH data from PLY file, order: ${e.data.shOrder}`);
+                actualShOrder = e.data.shOrder;
+                
+                // Update UI to reflect the detected SH order
+                const shOrderSelect = document.getElementById("sh-order-select");
+                if (shOrderSelect) {
+                    // Limit to the detected maximum order
+                    const userSelectedOrder = Math.min(parseInt(shOrderSelect.value), actualShOrder);
+                    shOrderSelect.value = userSelectedOrder.toString();
+                    console.log(`Setting UI SH order to ${userSelectedOrder} (max available: ${actualShOrder})`);
+                }
+            } else if (shArrayBuffer && actualShOrder > 0) {
+                // If we have separate SH data (from .sh file), send it to the worker
+                console.log("Sending separate SH data to worker");
                 worker.postMessage({
                     shData: shArrayBuffer,
                     shOrder: actualShOrder
@@ -2025,6 +2295,15 @@ async function main() {
             // Extract camera position from inverse view matrix (inv)
             const cameraPosition = [inv[12], inv[13], inv[14]];
             gl.uniform3fv(u_cameraPos, new Float32Array(cameraPosition));
+            
+            // Set SH order inclusion uniforms
+            if (shIncludeCheckboxes[0]) gl.uniform1i(gl.getUniformLocation(program, "u_includeSH0"), shIncludeCheckboxes[0].checked);
+            if (shIncludeCheckboxes[1]) gl.uniform1i(gl.getUniformLocation(program, "u_includeSH1"), shIncludeCheckboxes[1].checked);
+            if (shIncludeCheckboxes[2]) gl.uniform1i(gl.getUniformLocation(program, "u_includeSH2"), shIncludeCheckboxes[2].checked);
+            if (shIncludeCheckboxes[3]) gl.uniform1i(gl.getUniformLocation(program, "u_includeSH3"), shIncludeCheckboxes[3].checked);
+            
+            // Set debug mode uniform
+            gl.uniform1i(gl.getUniformLocation(program, "u_debugMode"), debugMode);
             
             gl.clear(gl.COLOR_BUFFER_BIT);
             gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, vertexCount);
