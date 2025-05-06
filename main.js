@@ -393,12 +393,74 @@ function createWorker(self) {
     }
 
     /**
+     * Generates a texture for SH coefficients
+     */
+    function generateSHTexture(shBuffer, shOrder) {
+        console.log(`Generating SH texture for order ${shOrder}`);
+        
+        // Calculate number of coefficients based on SH order
+        const numCoeffs = (shOrder + 1) * (shOrder + 1);
+        const numChannels = 3; // RGB
+        const coeffsPerGaussian = numCoeffs * numChannels;
+        
+        // Create Float32Array view of the SH buffer
+        const shData = new Float32Array(shBuffer);
+        
+        // Calculate texture dimensions
+        // Each coefficient needs a float (4 bytes)
+        // We'll use RGBA32F format, so each texel can store 4 floats
+        const texelsPerGaussian = Math.ceil(coeffsPerGaussian / 4);
+        const texwidth = 1024; // Adjust as needed
+        const texheight = Math.ceil((texelsPerGaussian * vertexCount) / texwidth);
+        
+        // Create texture data array
+        const texdata = new Float32Array(texwidth * texheight * 4);
+        
+        // Fill texture with SH coefficients
+        for (let i = 0; i < vertexCount; i++) {
+            for (let j = 0; j < coeffsPerGaussian; j++) {
+                const texelIdx = Math.floor(j / 4);
+                const channelIdx = j % 4;
+                const texelOffset = (i * texelsPerGaussian + texelIdx) * 4 + channelIdx;
+                
+                if (j < shData.length / vertexCount) {
+                    texdata[texelOffset] = shData[i * (shData.length / vertexCount) + j];
+                } else {
+                    texdata[texelOffset] = 0.0; // Pad with zeros if needed
+                }
+            }
+        }
+        
+        // Upload texture to GPU
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, shTexture);
+        gl.texImage2D(
+            gl.TEXTURE_2D,
+            0,
+            gl.RGBA32F,
+            texwidth,
+            texheight,
+            0,
+            gl.RGBA,
+            gl.FLOAT,
+            texdata
+        );
+        
+        console.log(`SH texture generated: ${texwidth}x${texheight}`);
+    }
+
+    /**
      * Generates a texture from the current buffer data
      */
     function generateTexture() {
         if (!buffer) return;
         const f_buffer = new Float32Array(buffer);
         const u_buffer = new Uint8Array(buffer);
+        
+        // Generate SH texture if SH data is available
+        if (shArrayBuffer && actualShOrder > 0) {
+            generateSHTexture(shArrayBuffer, actualShOrder);
+        }
 
         var texwidth = 1024 * 2; // Set to your desired width
         var texheight = Math.ceil((2 * vertexCount) / texwidth); // Set to your desired height
@@ -719,41 +781,75 @@ const vertexShaderSource = `
 precision highp float;
 precision highp int;
 
+// Uniforms
 uniform highp usampler2D u_texture;
+uniform highp usampler2D u_sh_texture;  // New texture for SH coefficients
 uniform mat4 projection, view;
 uniform vec2 focal;
 uniform vec2 viewport;
+uniform vec3 cameraPos;
+uniform float shOrder;  // 0, 1, 2, or 3 for SH order
 
+// Inputs
 in vec2 position;
 in int index;
 
+// Outputs to fragment shader
 out vec4 vColor;
 out vec2 vPosition;
+out vec3 vWorldPos;
+out vec3 vViewDir;
+out float vSHOrder;
+
+// SH coefficient outputs
+out vec3 vSH_0;
+out vec3 vSH_1_0;
+out vec3 vSH_1_1;
+out vec3 vSH_1_2;
+out vec3 vSH_2_0;
+out vec3 vSH_2_1;
+out vec3 vSH_2_2;
+out vec3 vSH_2_3;
+out vec3 vSH_2_4;
+out vec3 vSH_3_0;
+out vec3 vSH_3_1;
+out vec3 vSH_3_2;
+out vec3 vSH_3_3;
+out vec3 vSH_3_4;
+out vec3 vSH_3_5;
+out vec3 vSH_3_6;
 
 void main () {
+    // Fetch center position
     uvec4 cen = texelFetch(u_texture, ivec2((uint(index) & 0x3ffu) << 1, uint(index) >> 10), 0);
-    vec4 cam = view * vec4(uintBitsToFloat(cen.xyz), 1);
+    vec3 worldPos = uintBitsToFloat(cen.xyz);
+    vec4 cam = view * vec4(worldPos, 1);
     vec4 pos2d = projection * cam;
 
+    // Early culling
     float clip = 1.2 * pos2d.w;
     if (pos2d.z < -clip || pos2d.x < -clip || pos2d.x > clip || pos2d.y < -clip || pos2d.y > clip) {
         gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
         return;
     }
 
+    // Fetch covariance and color
     uvec4 cov = texelFetch(u_texture, ivec2(((uint(index) & 0x3ffu) << 1) | 1u, uint(index) >> 10), 0);
     vec2 u1 = unpackHalf2x16(cov.x), u2 = unpackHalf2x16(cov.y), u3 = unpackHalf2x16(cov.z);
     mat3 Vrk = mat3(u1.x, u1.y, u2.x, u1.y, u2.y, u3.x, u2.x, u3.x, u3.y);
 
+    // Jacobian for projection
     mat3 J = mat3(
         focal.x / cam.z, 0., -(focal.x * cam.x) / (cam.z * cam.z),
         0., -focal.y / cam.z, (focal.y * cam.y) / (cam.z * cam.z),
         0., 0., 0.
     );
 
+    // Calculate 2D covariance
     mat3 T = transpose(mat3(view)) * J;
     mat3 cov2d = transpose(T) * Vrk * T;
 
+    // Calculate eigenvalues and eigenvectors
     float mid = (cov2d[0][0] + cov2d[1][1]) / 2.0;
     float radius = length(vec2((cov2d[0][0] - cov2d[1][1]) / 2.0, cov2d[0][1]));
     float lambda1 = mid + radius, lambda2 = mid - radius;
@@ -763,15 +859,146 @@ void main () {
     vec2 majorAxis = min(sqrt(2.0 * lambda1), 1024.0) * diagonalVector;
     vec2 minorAxis = min(sqrt(2.0 * lambda2), 1024.0) * vec2(diagonalVector.y, -diagonalVector.x);
 
+    // Set base color (for backward compatibility)
     vColor = clamp(pos2d.z/pos2d.w+1.0, 0.0, 1.0) * vec4((cov.w) & 0xffu, (cov.w >> 8) & 0xffu, (cov.w >> 16) & 0xffu, (cov.w >> 24) & 0xffu) / 255.0;
+    
+    // Pass position and view direction to fragment shader
     vPosition = position;
+    vWorldPos = worldPos;
+    vViewDir = cameraPos - worldPos;
+    vSHOrder = shOrder;
+    
+    // Fetch SH coefficients if available
+    if (shOrder >= 0.5) {
+        // Base SH coefficient (0th order)
+        uvec4 sh0 = texelFetch(u_sh_texture, ivec2(uint(index), 0u), 0);
+        vSH_0 = vec3(
+            float(int((sh0.x) & 0xffffu) - 32768) / 32768.0,
+            float(int((sh0.x >> 16) & 0xffffu) - 32768) / 32768.0,
+            float(int((sh0.y) & 0xffffu) - 32768) / 32768.0
+        );
+        
+        // 1st order SH coefficients
+        if (shOrder >= 1.0) {
+            uvec4 sh1_0 = texelFetch(u_sh_texture, ivec2(uint(index), 1u), 0);
+            vSH_1_0 = vec3(
+                float(int((sh1_0.x) & 0xffffu) - 32768) / 32768.0,
+                float(int((sh1_0.x >> 16) & 0xffffu) - 32768) / 32768.0,
+                float(int((sh1_0.y) & 0xffffu) - 32768) / 32768.0
+            );
+            
+            uvec4 sh1_1 = texelFetch(u_sh_texture, ivec2(uint(index), 2u), 0);
+            vSH_1_1 = vec3(
+                float(int((sh1_1.x) & 0xffffu) - 32768) / 32768.0,
+                float(int((sh1_1.x >> 16) & 0xffffu) - 32768) / 32768.0,
+                float(int((sh1_1.y) & 0xffffu) - 32768) / 32768.0
+            );
+            
+            uvec4 sh1_2 = texelFetch(u_sh_texture, ivec2(uint(index), 3u), 0);
+            vSH_1_2 = vec3(
+                float(int((sh1_2.x) & 0xffffu) - 32768) / 32768.0,
+                float(int((sh1_2.x >> 16) & 0xffffu) - 32768) / 32768.0,
+                float(int((sh1_2.y) & 0xffffu) - 32768) / 32768.0
+            );
+            
+            // 2nd order SH coefficients
+            if (shOrder >= 2.0) {
+                uvec4 sh2_0 = texelFetch(u_sh_texture, ivec2(uint(index), 4u), 0);
+                vSH_2_0 = vec3(
+                    float(int((sh2_0.x) & 0xffffu) - 32768) / 32768.0,
+                    float(int((sh2_0.x >> 16) & 0xffffu) - 32768) / 32768.0,
+                    float(int((sh2_0.y) & 0xffffu) - 32768) / 32768.0
+                );
+                
+                uvec4 sh2_1 = texelFetch(u_sh_texture, ivec2(uint(index), 5u), 0);
+                vSH_2_1 = vec3(
+                    float(int((sh2_1.x) & 0xffffu) - 32768) / 32768.0,
+                    float(int((sh2_1.x >> 16) & 0xffffu) - 32768) / 32768.0,
+                    float(int((sh2_1.y) & 0xffffu) - 32768) / 32768.0
+                );
+                
+                uvec4 sh2_2 = texelFetch(u_sh_texture, ivec2(uint(index), 6u), 0);
+                vSH_2_2 = vec3(
+                    float(int((sh2_2.x) & 0xffffu) - 32768) / 32768.0,
+                    float(int((sh2_2.x >> 16) & 0xffffu) - 32768) / 32768.0,
+                    float(int((sh2_2.y) & 0xffffu) - 32768) / 32768.0
+                );
+                
+                uvec4 sh2_3 = texelFetch(u_sh_texture, ivec2(uint(index), 7u), 0);
+                vSH_2_3 = vec3(
+                    float(int((sh2_3.x) & 0xffffu) - 32768) / 32768.0,
+                    float(int((sh2_3.x >> 16) & 0xffffu) - 32768) / 32768.0,
+                    float(int((sh2_3.y) & 0xffffu) - 32768) / 32768.0
+                );
+                
+                uvec4 sh2_4 = texelFetch(u_sh_texture, ivec2(uint(index), 8u), 0);
+                vSH_2_4 = vec3(
+                    float(int((sh2_4.x) & 0xffffu) - 32768) / 32768.0,
+                    float(int((sh2_4.x >> 16) & 0xffffu) - 32768) / 32768.0,
+                    float(int((sh2_4.y) & 0xffffu) - 32768) / 32768.0
+                );
+                
+                // 3rd order SH coefficients
+                if (shOrder >= 3.0) {
+                    uvec4 sh3_0 = texelFetch(u_sh_texture, ivec2(uint(index), 9u), 0);
+                    vSH_3_0 = vec3(
+                        float(int((sh3_0.x) & 0xffffu) - 32768) / 32768.0,
+                        float(int((sh3_0.x >> 16) & 0xffffu) - 32768) / 32768.0,
+                        float(int((sh3_0.y) & 0xffffu) - 32768) / 32768.0
+                    );
+                    
+                    uvec4 sh3_1 = texelFetch(u_sh_texture, ivec2(uint(index), 10u), 0);
+                    vSH_3_1 = vec3(
+                        float(int((sh3_1.x) & 0xffffu) - 32768) / 32768.0,
+                        float(int((sh3_1.x >> 16) & 0xffffu) - 32768) / 32768.0,
+                        float(int((sh3_1.y) & 0xffffu) - 32768) / 32768.0
+                    );
+                    
+                    uvec4 sh3_2 = texelFetch(u_sh_texture, ivec2(uint(index), 11u), 0);
+                    vSH_3_2 = vec3(
+                        float(int((sh3_2.x) & 0xffffu) - 32768) / 32768.0,
+                        float(int((sh3_2.x >> 16) & 0xffffu) - 32768) / 32768.0,
+                        float(int((sh3_2.y) & 0xffffu) - 32768) / 32768.0
+                    );
+                    
+                    uvec4 sh3_3 = texelFetch(u_sh_texture, ivec2(uint(index), 12u), 0);
+                    vSH_3_3 = vec3(
+                        float(int((sh3_3.x) & 0xffffu) - 32768) / 32768.0,
+                        float(int((sh3_3.x >> 16) & 0xffffu) - 32768) / 32768.0,
+                        float(int((sh3_3.y) & 0xffffu) - 32768) / 32768.0
+                    );
+                    
+                    uvec4 sh3_4 = texelFetch(u_sh_texture, ivec2(uint(index), 13u), 0);
+                    vSH_3_4 = vec3(
+                        float(int((sh3_4.x) & 0xffffu) - 32768) / 32768.0,
+                        float(int((sh3_4.x >> 16) & 0xffffu) - 32768) / 32768.0,
+                        float(int((sh3_4.y) & 0xffffu) - 32768) / 32768.0
+                    );
+                    
+                    uvec4 sh3_5 = texelFetch(u_sh_texture, ivec2(uint(index), 14u), 0);
+                    vSH_3_5 = vec3(
+                        float(int((sh3_5.x) & 0xffffu) - 32768) / 32768.0,
+                        float(int((sh3_5.x >> 16) & 0xffffu) - 32768) / 32768.0,
+                        float(int((sh3_5.y) & 0xffffu) - 32768) / 32768.0
+                    );
+                    
+                    uvec4 sh3_6 = texelFetch(u_sh_texture, ivec2(uint(index), 15u), 0);
+                    vSH_3_6 = vec3(
+                        float(int((sh3_6.x) & 0xffffu) - 32768) / 32768.0,
+                        float(int((sh3_6.x >> 16) & 0xffffu) - 32768) / 32768.0,
+                        float(int((sh3_6.y) & 0xffffu) - 32768) / 32768.0
+                    );
+                }
+            }
+        }
+    }
 
+    // Calculate final position
     vec2 vCenter = vec2(pos2d) / pos2d.w;
     gl_Position = vec4(
         vCenter
         + position.x * majorAxis / viewport
         + position.y * minorAxis / viewport, 0.0, 1.0);
-
 }
 `.trim();
 
@@ -779,16 +1006,129 @@ const fragmentShaderSource = `
 #version 300 es
 precision highp float;
 
+// Input from vertex shader
 in vec4 vColor;
 in vec2 vPosition;
+in vec3 vWorldPos;
+in vec3 vViewDir;
+in float vSHOrder;
+in vec3 vSH_0;
+in vec3 vSH_1_0;
+in vec3 vSH_1_1;
+in vec3 vSH_1_2;
+in vec3 vSH_2_0;
+in vec3 vSH_2_1;
+in vec3 vSH_2_2;
+in vec3 vSH_2_3;
+in vec3 vSH_2_4;
+in vec3 vSH_3_0;
+in vec3 vSH_3_1;
+in vec3 vSH_3_2;
+in vec3 vSH_3_3;
+in vec3 vSH_3_4;
+in vec3 vSH_3_5;
+in vec3 vSH_3_6;
 
 out vec4 fragColor;
 
+// SH constants
+const float SH_C0 = 0.28209479177387814;
+
+// Evaluate spherical harmonics bases at unit direction
+// Based on "Efficient Spherical Harmonic Evaluation" by Peter-Pike Sloan, JCGT 2013
+vec3 evaluateSH(vec3 dir) {
+    // Start with 0th order (constant)
+    vec3 color = SH_C0 * vSH_0;
+    
+    // If we only have 0th order coefficients, return early
+    if (vSHOrder < 1.0) {
+        return color;
+    }
+    
+    // Extract components of the normalized direction
+    float x = dir.x;
+    float y = dir.y;
+    float z = dir.z;
+    
+    // 1st order SH basis functions
+    float fTmp0A = 0.48860251190292;
+    color += fTmp0A * (-y * vSH_1_0 + z * vSH_1_1 - x * vSH_1_2);
+    
+    // If we only have 1st order coefficients, return early
+    if (vSHOrder < 2.0) {
+        return color;
+    }
+    
+    // 2nd order SH basis functions
+    float z2 = z * z;
+    float fTmp0B = -1.092548430592079 * z;
+    float fTmp1A = 0.5462742152960395;
+    float fC1 = x * x - y * y;
+    float fS1 = 2.0 * x * y;
+    
+    float pSH6 = (0.9461746957575601 * z2 - 0.3153915652525201);
+    float pSH7 = fTmp0B * x;
+    float pSH5 = fTmp0B * y;
+    float pSH8 = fTmp1A * fC1;
+    float pSH4 = fTmp1A * fS1;
+    
+    color += pSH4 * vSH_2_0 +
+             pSH5 * vSH_2_1 +
+             pSH6 * vSH_2_2 +
+             pSH7 * vSH_2_3 +
+             pSH8 * vSH_2_4;
+    
+    // If we only have 2nd order coefficients, return early
+    if (vSHOrder < 3.0) {
+        return color;
+    }
+    
+    // 3rd order SH basis functions
+    float fTmp0C = -2.285228997322329 * z2 + 0.4570457994644658;
+    float fTmp1B = 1.445305721320277 * z;
+    float fTmp2A = -0.5900435899266435;
+    float fC2 = x * fC1 - y * fS1;
+    float fS2 = x * fS1 + y * fC1;
+    
+    float pSH12 = z * (1.865881662950577 * z2 - 1.119528997770346);
+    float pSH13 = fTmp0C * x;
+    float pSH11 = fTmp0C * y;
+    float pSH14 = fTmp1B * fC1;
+    float pSH10 = fTmp1B * fS1;
+    float pSH15 = fTmp2A * fC2;
+    float pSH9  = fTmp2A * fS2;
+    
+    color += pSH9  * vSH_3_0 +
+             pSH10 * vSH_3_1 +
+             pSH11 * vSH_3_2 +
+             pSH12 * vSH_3_3 +
+             pSH13 * vSH_3_4 +
+             pSH14 * vSH_3_5 +
+             pSH15 * vSH_3_6;
+    
+    return color;
+}
+
 void main () {
+    // Gaussian splatting alpha calculation
     float A = -dot(vPosition, vPosition);
     if (A < -4.0) discard;
-    float B = exp(A) * vColor.a;
-    fragColor = vec4(B * vColor.rgb, B);
+    float alpha = exp(A) * vColor.a;
+    
+    // Calculate view-dependent color using SH
+    vec3 viewDir = normalize(vViewDir);
+    vec3 shColor;
+    
+    // If SH order is 0, just use the base color (for backward compatibility)
+    if (vSHOrder < 0.5) {
+        shColor = vColor.rgb;
+    } else {
+        // Evaluate SH and add 0.5 offset (same as in the conversion)
+        shColor = evaluateSH(viewDir) + vec3(0.5);
+    }
+    
+    // Final color with alpha
+    fragColor = vec4(alpha * shColor, alpha);
 }
 
 `.trim();
@@ -809,21 +1149,75 @@ async function main() {
         viewMatrix = JSON.parse(decodeURIComponent(location.hash.slice(1)));
         carousel = false;
     } catch (err) {}
+    
+    // Get SH order from URL parameter (default to 0 for backward compatibility)
+    const shOrder = parseInt(params.get("sh_order") || "0");
+    console.log(`Using SH order: ${shOrder}`);
+    
+    // Set the SH order selector to match the URL parameter
+    const shOrderSelect = document.getElementById("sh-order-select");
+    if (shOrderSelect) {
+        shOrderSelect.value = shOrder.toString();
+        
+        // Add event listener to update SH order when changed
+        shOrderSelect.addEventListener("change", function() {
+            const newOrder = parseInt(this.value);
+            // Update URL parameter
+            const newParams = new URLSearchParams(location.search);
+            newParams.set("sh_order", newOrder.toString());
+            
+            // Reload the page with the new SH order
+            window.location.search = newParams.toString();
+        });
+    }
+    
     const url = new URL(
-        // "innolight.splat",
-        // location.href,
         params.get("url") || "innolight.ply",
         "https://huggingface.co/datasets/jwt625/splat/resolve/main/",
     );
-    // const url = params.get("url") || "innolight.splat";
 
+    // Fetch the main SPLAT file
     const req = await fetch(url, {
-        mode: "cors", // no-cors, *cors, same-origin
-        credentials: "omit", // include, *same-origin, omit
+        mode: "cors",
+        credentials: "omit",
     });
     console.log(req);
     if (req.status != 200)
         throw new Error(req.status + " Unable to load " + req.url);
+        
+    // Try to fetch the SH data file if SH order > 0
+    let shArrayBuffer = null;
+    let actualShOrder = 0;
+    
+    if (shOrder > 0) {
+        try {
+            const shUrl = new URL(
+                url.pathname.replace(/\.[^/.]+$/, ".sh"),
+                url.origin
+            );
+            console.log(`Trying to load SH data from: ${shUrl}`);
+            
+            const shReq = await fetch(shUrl, {
+                mode: "cors",
+                credentials: "omit",
+            });
+            
+            if (shReq.ok) {
+                shArrayBuffer = await shReq.arrayBuffer();
+                // Read the SH order from the header (first 4 bytes)
+                const headerView = new DataView(shArrayBuffer);
+                actualShOrder = headerView.getInt32(0, true);
+                console.log(`Loaded SH data with order: ${actualShOrder}`);
+                
+                // Remove the header from the data
+                shArrayBuffer = shArrayBuffer.slice(4);
+            } else {
+                console.warn(`No SH data found at ${shUrl}, using order 0`);
+            }
+        } catch (err) {
+            console.warn(`Error loading SH data: ${err}, using order 0`);
+        }
+    }
 
     const rowLength = 3 * 4 + 3 * 4 + 4 + 4;
     const reader = req.body.getReader();
@@ -884,10 +1278,13 @@ async function main() {
     );
     gl.blendEquationSeparate(gl.FUNC_ADD, gl.FUNC_ADD);
 
+    // Get uniform locations
     const u_projection = gl.getUniformLocation(program, "projection");
     const u_viewport = gl.getUniformLocation(program, "viewport");
     const u_focal = gl.getUniformLocation(program, "focal");
     const u_view = gl.getUniformLocation(program, "view");
+    const u_cameraPos = gl.getUniformLocation(program, "cameraPos");
+    const u_shOrder = gl.getUniformLocation(program, "shOrder");
 
     // positions
     const triangleVertices = new Float32Array([-2, -2, 2, -2, 2, 2, -2, 2]);
@@ -899,11 +1296,29 @@ async function main() {
     gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
     gl.vertexAttribPointer(a_position, 2, gl.FLOAT, false, 0, 0);
 
+    // Create main texture for gaussian data
     var texture = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    
+    // Create SH texture for spherical harmonics coefficients
+    var shTexture = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, shTexture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 
+    // Set texture uniforms
     var u_textureLocation = gl.getUniformLocation(program, "u_texture");
+    var u_sh_textureLocation = gl.getUniformLocation(program, "u_sh_texture");
     gl.uniform1i(u_textureLocation, 0);
+    gl.uniform1i(u_sh_textureLocation, 1);
 
     const indexBuffer = gl.createBuffer();
     const a_index = gl.getAttribLocation(program, "index");
@@ -926,6 +1341,9 @@ async function main() {
         );
 
         gl.uniform2fv(u_viewport, new Float32Array([innerWidth, innerHeight]));
+        
+        // Set SH order uniform
+        gl.uniform1f(u_shOrder, actualShOrder);
 
         gl.canvas.width = Math.round(innerWidth / downsample);
         gl.canvas.height = Math.round(innerHeight / downsample);
@@ -1432,7 +1850,15 @@ async function main() {
 
         if (vertexCount > 0) {
             document.getElementById("spinner").style.display = "none";
+            
+            // Set view matrix
             gl.uniformMatrix4fv(u_view, false, actualViewMatrix);
+            
+            // Set camera position for view-dependent lighting
+            // Extract camera position from inverse view matrix (inv)
+            const cameraPosition = [inv[12], inv[13], inv[14]];
+            gl.uniform3fv(u_cameraPos, new Float32Array(cameraPosition));
+            
             gl.clear(gl.COLOR_BUFFER_BIT);
             gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, vertexCount);
         } else {
