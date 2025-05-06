@@ -1344,10 +1344,10 @@ vec3 evaluateSH(vec3 dir) {
 }
 
 void main() {
-    float d = length(vPosition);
-    if (d > 1.0) {
-        discard;
-    }
+    // Gaussian splatting alpha calculation
+    float A = -dot(vPosition, vPosition);
+    if (A < -4.0) discard;
+    float alpha = exp(A) * vColor.a;
     
     // Calculate view direction for SH evaluation
     vec3 viewDir = normalize(vViewDir);
@@ -1376,51 +1376,6 @@ void main() {
     float opacity = vColor.a * (1.0 - d * d);
     fragColor = vec4(color, opacity);
 }
-`;
-
-void main () {
-    // Gaussian splatting alpha calculation
-    float A = -dot(vPosition, vPosition);
-    if (A < -4.0) discard;
-    float alpha = exp(A) * vColor.a;
-    
-    // Calculate view-dependent color using SH
-    vec3 viewDir = normalize(vViewDir);
-    vec3 shColor;
-    
-    // Debug: Visualize SH coefficients
-    bool debugMode = false; // Set to true to enable debug visualization
-    
-    if (debugMode) {
-        // Debug visualization mode
-        if (vSHOrder < 0.5) {
-            // For order 0, show base color
-            shColor = vColor.rgb;
-        } else {
-            // For higher orders, show a color based on the SH order
-            shColor = getDebugColor(vSHOrder);
-            
-            // Mix in some coefficient visualization
-            if (vSHOrder >= 1.0) {
-                // Show 1st order coefficients
-                shColor = mix(shColor, abs(vec3(vSH_1_0.r, vSH_1_1.g, vSH_1_2.b)), 0.5);
-            }
-        }
-    } else {
-        // Normal rendering mode
-        // If SH order is 0, just use the base color (for backward compatibility)
-        if (vSHOrder < 0.5) {
-            shColor = vColor.rgb;
-        } else {
-            // Evaluate SH and add 0.5 offset (same as in the conversion)
-            shColor = evaluateSH(viewDir) + vec3(0.5);
-        }
-    }
-    
-    // Final color with alpha
-    fragColor = vec4(alpha * shColor, alpha);
-}
-
 `.trim();
 
 let defaultViewMatrix = [
