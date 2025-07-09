@@ -450,7 +450,7 @@ function createWorker(self) {
         }
 
         // This is a 16 bit single-pass counting sort
-        let depthInv = (256 * 256) / (maxDepth - minDepth);
+        let depthInv = (256 * 256 - 1) / (maxDepth - minDepth);
         let counts0 = new Uint32Array(256 * 256);
         for (let i = 0; i < vertexCount; i++) {
             sizeList[i] = ((sizeList[i] - minDepth) * depthInv) | 0;
@@ -639,7 +639,7 @@ function createWorker(self) {
             runSort(viewProj);
             buffer = processPlyBuffer(e.data.ply);
             vertexCount = Math.floor(buffer.byteLength / rowLength);
-            postMessage({ buffer: buffer });
+            postMessage({ buffer: buffer, save: !!e.data.save });
         } else if (e.data.buffer) {
             buffer = e.data.buffer;
             vertexCount = e.data.vertexCount;
@@ -685,8 +685,8 @@ void main () {
     mat3 Vrk = mat3(u1.x, u1.y, u2.x, u1.y, u2.y, u3.x, u2.x, u3.x, u3.y);
 
     mat3 J = mat3(
-        focal.x / cam.z, 0., -(focal.x * cam.x) / (cam.z * cam.z), 
-        0., -focal.y / cam.z, (focal.y * cam.y) / (cam.z * cam.z), 
+        focal.x / cam.z, 0., -(focal.x * cam.x) / (cam.z * cam.z),
+        0., -focal.y / cam.z, (focal.y * cam.y) / (cam.z * cam.z),
         0., 0., 0.
     );
 
@@ -710,7 +710,6 @@ void main () {
         vCenter 
         + position.x * majorAxis * splat_scale / viewport 
         + position.y * minorAxis * splat_scale / viewport, 0.0, 1.0);
-
 }
 `.trim();
 
@@ -874,14 +873,16 @@ async function main() {
     worker.onmessage = (e) => {
         if (e.data.buffer) {
             splatData = new Uint8Array(e.data.buffer);
-            const blob = new Blob([splatData.buffer], {
-                type: "application/octet-stream",
-            });
-            const link = document.createElement("a");
-            link.download = "model.splat";
-            link.href = URL.createObjectURL(blob);
-            document.body.appendChild(link);
-            link.click();
+            if (e.data.save) {
+                const blob = new Blob([splatData.buffer], {
+                    type: "application/octet-stream",
+                });
+                const link = document.createElement("a");
+                link.download = "model.splat";
+                link.href = URL.createObjectURL(blob);
+                document.body.appendChild(link);
+                link.click();
+            }
         } else if (e.data.texdata) {
             const { texdata, texwidth, texheight } = e.data;
             // console.log(texdata)
@@ -921,25 +922,26 @@ async function main() {
     };
 
     let activeKeys = [];
-	let currentCameraIndex = 0;
+    let currentCameraIndex = 0;
 
     window.addEventListener("keydown", (e) => {
         // if (document.activeElement != document.body) return;
         carousel = false;
         if (!activeKeys.includes(e.code)) activeKeys.push(e.code);
         if (/\d/.test(e.key)) {
-            currentCameraIndex = parseInt(e.key)
+            currentCameraIndex = parseInt(e.key);
             camera = cameras[currentCameraIndex];
             viewMatrix = getViewMatrix(camera);
         }
-		if (['-', '_'].includes(e.key)){
-			currentCameraIndex = (currentCameraIndex + cameras.length - 1) % cameras.length;
-			viewMatrix = getViewMatrix(cameras[currentCameraIndex]);
-		}
-		if (['+', '='].includes(e.key)){
-			currentCameraIndex = (currentCameraIndex + 1) % cameras.length;
-			viewMatrix = getViewMatrix(cameras[currentCameraIndex]);
-		}
+        if (["-", "_"].includes(e.key)) {
+            currentCameraIndex =
+                (currentCameraIndex + cameras.length - 1) % cameras.length;
+            viewMatrix = getViewMatrix(cameras[currentCameraIndex]);
+        }
+        if (["+", "="].includes(e.key)) {
+            currentCameraIndex = (currentCameraIndex + 1) % cameras.length;
+            viewMatrix = getViewMatrix(cameras[currentCameraIndex]);
+        }
         camid.innerText = "cam  " + currentCameraIndex;
         if (e.code == "KeyV") {
             location.hash =
@@ -947,10 +949,10 @@ async function main() {
                 JSON.stringify(
                     viewMatrix.map((k) => Math.round(k * 100) / 100),
                 );
-                camid.innerText =""
+            camid.innerText = "";
         } else if (e.code === "KeyP") {
             carousel = true;
-            camid.innerText =""
+            camid.innerText = "";
         }
     });
     window.addEventListener("keyup", (e) => {
@@ -970,8 +972,8 @@ async function main() {
                 e.deltaMode == 1
                     ? lineHeight
                     : e.deltaMode == 2
-                    ? innerHeight
-                    : 1;
+                      ? innerHeight
+                      : 1;
             let inv = invert4(viewMatrix);
             if (e.shiftKey) {
                 inv = translate4(
@@ -1183,7 +1185,10 @@ async function main() {
 
     const frame = (now) => {
         let inv = invert4(viewMatrix);
-        let shiftKey = activeKeys.includes("Shift") || activeKeys.includes("ShiftLeft") || activeKeys.includes("ShiftRight")
+        let shiftKey =
+            activeKeys.includes("Shift") ||
+            activeKeys.includes("ShiftLeft") ||
+            activeKeys.includes("ShiftRight");
 
         if (activeKeys.includes("ArrowUp")) {
             if (shiftKey) {
@@ -1230,13 +1235,27 @@ async function main() {
                 inv = translate4(inv, 0, 0, -moveSpeed * gamepad.axes[1]);
                 carousel = false;
             }
-            if(gamepad.buttons[12].pressed || gamepad.buttons[13].pressed){
-                inv = translate4(inv, 0, -moveSpeed*(gamepad.buttons[12].pressed - gamepad.buttons[13].pressed), 0);
+            if (gamepad.buttons[12].pressed || gamepad.buttons[13].pressed) {
+                inv = translate4(
+                    inv,
+                    0,
+                    -moveSpeed *
+                        (gamepad.buttons[12].pressed -
+                            gamepad.buttons[13].pressed),
+                    0,
+                );
                 carousel = false;
             }
 
-            if(gamepad.buttons[14].pressed || gamepad.buttons[15].pressed){
-                inv = translate4(inv, -moveSpeed*(gamepad.buttons[14].pressed - gamepad.buttons[15].pressed), 0, 0);
+            if (gamepad.buttons[14].pressed || gamepad.buttons[15].pressed) {
+                inv = translate4(
+                    inv,
+                    -moveSpeed *
+                        (gamepad.buttons[14].pressed -
+                            gamepad.buttons[15].pressed),
+                    0,
+                    0,
+                );
                 carousel = false;
             }
 
@@ -1256,12 +1275,17 @@ async function main() {
                 carousel = false;
             }
             if (gamepad.buttons[4].pressed && !leftGamepadTrigger) {
-                camera = cameras[(cameras.indexOf(camera)+1)%cameras.length]
+                camera =
+                    cameras[(cameras.indexOf(camera) + 1) % cameras.length];
                 inv = invert4(getViewMatrix(camera));
                 carousel = false;
             }
             if (gamepad.buttons[5].pressed && !rightGamepadTrigger) {
-                camera = cameras[(cameras.indexOf(camera)+cameras.length-1)%cameras.length]
+                camera =
+                    cameras[
+                        (cameras.indexOf(camera) + cameras.length - 1) %
+                            cameras.length
+                    ];
                 inv = invert4(getViewMatrix(camera));
                 carousel = false;
             }
@@ -1271,7 +1295,7 @@ async function main() {
                 isJumping = true;
                 carousel = false;
             }
-            if(gamepad.buttons[3].pressed){
+            if (gamepad.buttons[3].pressed) {
                 carousel = true;
             }
         }
@@ -1286,8 +1310,8 @@ async function main() {
                 activeKeys.includes("KeyJ")
                     ? -0.05
                     : activeKeys.includes("KeyL")
-                    ? 0.05
-                    : 0,
+                      ? 0.05
+                      : 0,
                 0,
                 1,
                 0,
@@ -1297,8 +1321,8 @@ async function main() {
                 activeKeys.includes("KeyI")
                     ? 0.05
                     : activeKeys.includes("KeyK")
-                    ? -0.05
-                    : 0,
+                      ? -0.05
+                      : 0,
                 1,
                 0,
                 0,
@@ -1361,7 +1385,7 @@ async function main() {
             document.getElementById("progress").style.display = "none";
         }
         fps.innerText = Math.round(avgFps) + " fps";
-        if (isNaN(currentCameraIndex)){
+        if (isNaN(currentCameraIndex)) {
             camid.innerText = "";
         }
         lastFrame = now;
@@ -1369,6 +1393,12 @@ async function main() {
     };
 
     frame();
+
+    const isPly = (splatData) =>
+        splatData[0] == 112 &&
+        splatData[1] == 108 &&
+        splatData[2] == 121 &&
+        splatData[3] == 10;
 
     const selectFile = (file) => {
         const fr = new FileReader();
@@ -1393,14 +1423,9 @@ async function main() {
                 splatData = new Uint8Array(fr.result);
                 console.log("Loaded", Math.floor(splatData.length / rowLength));
 
-                if (
-                    splatData[0] == 112 &&
-                    splatData[1] == 108 &&
-                    splatData[2] == 121 &&
-                    splatData[3] == 10
-                ) {
+                if (isPly(splatData)) {
                     // ply file magic header means it should be handled differently
-                    worker.postMessage({ ply: splatData.buffer });
+                    worker.postMessage({ ply: splatData.buffer, save: true });
                 } else {
                     worker.postMessage({
                         buffer: splatData.buffer,
@@ -1444,18 +1469,26 @@ async function main() {
         bytesRead += value.length;
 
         if (vertexCount > lastVertexCount) {
+            if (!isPly(splatData)) {
+                worker.postMessage({
+                    buffer: splatData.buffer,
+                    vertexCount: Math.floor(bytesRead / rowLength),
+                });
+            }
+            lastVertexCount = vertexCount;
+        }
+    }
+    if (!stopLoading) {
+        if (isPly(splatData)) {
+            // ply file magic header means it should be handled differently
+            worker.postMessage({ ply: splatData.buffer, save: false });
+        } else {
             worker.postMessage({
                 buffer: splatData.buffer,
                 vertexCount: Math.floor(bytesRead / rowLength),
             });
-            lastVertexCount = vertexCount;
         }
     }
-    if (!stopLoading)
-        worker.postMessage({
-            buffer: splatData.buffer,
-            vertexCount: Math.floor(bytesRead / rowLength),
-        });
 }
 
 main().catch((err) => {
