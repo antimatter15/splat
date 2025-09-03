@@ -1216,11 +1216,11 @@ async function main() {
         if (activeKeys.includes("KeyE")) inv = rotate4(inv, -0.01, 0, 0, 1);
         if (activeKeys.includes("KeyW")) inv = rotate4(inv, 0.005, 1, 0, 0);
         if (activeKeys.includes("KeyS")) inv = rotate4(inv, -0.005, 1, 0, 0);
-        if (activeKeys.includes("KeyB"))  eyeOffset = Math.max(-0.2, eyeOffset - 0.001); // verkleinern
-        if (activeKeys.includes("KeyN")) eyeOffset = Math.min(0.2, eyeOffset + 0.001); // vergrößern
+        if (activeKeys.includes("KeyB"))  eyeOffset = Math.max(-0.1, eyeOffset - 0.001);
+        if (activeKeys.includes("KeyN")) eyeOffset = Math.min(0.1, eyeOffset + 0.001);
         if (activeKeys.includes("KeyM")) {
             stereoEnabled = !stereoEnabled;
-            activeKeys = activeKeys.filter(k => k !== "KeyM"); // einmaliges Umschalten
+            activeKeys = activeKeys.filter(k => k !== "KeyM");
         }
 
         const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
@@ -1372,26 +1372,28 @@ async function main() {
             if (stereoEnabled) {
                 // Stereo-Rendering (Side-by-Side)
                 const halfWidth = gl.canvas.width / 2;
-                // Linkes Auge
+                // Left Eye
                 let leftProj = getProjectionMatrix(camera.fx, camera.fy, halfWidth, gl.canvas.height);
                 let leftInv = translate4(invert4(actualViewMatrix), -eyeOffset, 0, 0);
                 let leftView = invert4(leftInv);
                 gl.viewport(0, 0, halfWidth, gl.canvas.height);
+                gl.uniform2fv(u_viewport, new Float32Array([halfWidth, gl.canvas.height]));
                 gl.uniformMatrix4fv(u_projection, false, leftProj);
                 gl.uniformMatrix4fv(u_view, false, leftView);
                 gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, vertexCount);
-
-                // Rechtes Auge
+                // Right Eye
                 let rightProj = getProjectionMatrix(camera.fx, camera.fy, halfWidth, gl.canvas.height);
                 let rightInv = translate4(invert4(actualViewMatrix), eyeOffset, 0, 0);
                 let rightView = invert4(rightInv);
                 gl.viewport(halfWidth, 0, halfWidth, gl.canvas.height);
+                gl.uniform2fv(u_viewport, new Float32Array([halfWidth, gl.canvas.height]));
                 gl.uniformMatrix4fv(u_projection, false, rightProj);
                 gl.uniformMatrix4fv(u_view, false, rightView);
                 gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, vertexCount);
             } else {
-                // Mono-Rendering (ein Bild über gesamte Fläche)
+                // Mono-Rendering
                 gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+                gl.uniform2fv(u_viewport, new Float32Array([gl.canvas.width, gl.canvas.height]));
                 gl.uniformMatrix4fv(u_projection, false, projectionMatrix);
                 gl.uniformMatrix4fv(u_view, false, actualViewMatrix);
                 gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, vertexCount);
