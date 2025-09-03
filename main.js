@@ -1179,6 +1179,10 @@ async function main() {
 
     let leftGamepadTrigger, rightGamepadTrigger;
 
+    // Globale Variable für Stereo-Basis
+    let stereoEnabled = false; // Standard: Stereo an
+    let eyeOffset = 0.03; // Startwert
+
     const frame = (now) => {
         let inv = invert4(viewMatrix);
         let shiftKey =
@@ -1212,6 +1216,12 @@ async function main() {
         if (activeKeys.includes("KeyE")) inv = rotate4(inv, -0.01, 0, 0, 1);
         if (activeKeys.includes("KeyW")) inv = rotate4(inv, 0.005, 1, 0, 0);
         if (activeKeys.includes("KeyS")) inv = rotate4(inv, -0.005, 1, 0, 0);
+        if (activeKeys.includes("KeyB"))  eyeOffset = Math.max(-0.2, eyeOffset - 0.001); // verkleinern
+        if (activeKeys.includes("KeyN")) eyeOffset = Math.min(0.2, eyeOffset + 0.001); // vergrößern
+        if (activeKeys.includes("KeyM")) {
+            stereoEnabled = !stereoEnabled;
+            activeKeys = activeKeys.filter(k => k !== "KeyM"); // einmaliges Umschalten
+        }
 
         const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
         let isJumping = activeKeys.includes("Space");
@@ -1357,9 +1367,36 @@ async function main() {
 
         if (vertexCount > 0) {
             document.getElementById("spinner").style.display = "none";
-            gl.uniformMatrix4fv(u_view, false, actualViewMatrix);
             gl.clear(gl.COLOR_BUFFER_BIT);
-            gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, vertexCount);
+
+            if (stereoEnabled) {
+                // Stereo-Rendering (Side-by-Side)
+                const halfWidth = gl.canvas.width / 2;
+                // Linkes Auge
+                let leftProj = getProjectionMatrix(camera.fx, camera.fy, halfWidth, gl.canvas.height);
+                let leftInv = translate4(invert4(actualViewMatrix), -eyeOffset, 0, 0);
+                let leftView = invert4(leftInv);
+                gl.viewport(0, 0, halfWidth, gl.canvas.height);
+                gl.uniformMatrix4fv(u_projection, false, leftProj);
+                gl.uniformMatrix4fv(u_view, false, leftView);
+                gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, vertexCount);
+
+                // Rechtes Auge
+                let rightProj = getProjectionMatrix(camera.fx, camera.fy, halfWidth, gl.canvas.height);
+                let rightInv = translate4(invert4(actualViewMatrix), eyeOffset, 0, 0);
+                let rightView = invert4(rightInv);
+                gl.viewport(halfWidth, 0, halfWidth, gl.canvas.height);
+                gl.uniformMatrix4fv(u_projection, false, rightProj);
+                gl.uniformMatrix4fv(u_view, false, rightView);
+                gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, vertexCount);
+            } else {
+                // Mono-Rendering (ein Bild über gesamte Fläche)
+                gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+                gl.uniformMatrix4fv(u_projection, false, projectionMatrix);
+                gl.uniformMatrix4fv(u_view, false, actualViewMatrix);
+                gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, vertexCount);
+            }
+            
         } else {
             gl.clear(gl.COLOR_BUFFER_BIT);
             document.getElementById("spinner").style.display = "";
@@ -1371,7 +1408,7 @@ async function main() {
         } else {
             document.getElementById("progress").style.display = "none";
         }
-        fps.innerText = Math.round(avgFps) + " fps";
+        fps.innerText = Math.round(avgFps) + " fps | stereo=" + (stereoEnabled ? eyeOffset.toFixed(3) : "off");
         if (isNaN(currentCameraIndex)) {
             camid.innerText = "";
         }
