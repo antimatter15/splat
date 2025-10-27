@@ -1030,24 +1030,19 @@ async function main() {
             inv = rotate4(inv, dx, 0, 1, 0);
             inv = rotate4(inv, -dy, 1, 0, 0);
             inv = translate4(inv, 0, 0, -d);
-            // let postAngle = Math.atan2(inv[0], inv[10])
-            // inv = rotate4(inv, postAngle - preAngle, 0, 0, 1)
-            // console.log(postAngle)
             viewMatrix = invert4(inv);
 
             startX = e.clientX;
             startY = e.clientY;
         } else if (down == 2) {
             let inv = invert4(viewMatrix);
-            // inv = rotateY(inv, );
-            // let preY = inv[13];
+            // パン操作を改善: X軸とY軸の両方向に移動
             inv = translate4(
                 inv,
-                (-10 * (e.clientX - startX)) / innerWidth,
-                0,
-                (10 * (e.clientY - startY)) / innerHeight,
+                (-3 * (e.clientX - startX)) / innerWidth,
+                (3 * (e.clientY - startY)) / innerHeight,  // Y軸方向を反転
+                0
             );
-            // inv[13] = preY;
             viewMatrix = invert4(inv);
 
             startX = e.clientX;
@@ -1061,8 +1056,7 @@ async function main() {
         startY = 0;
     });
 
-    let altX = 0,
-        altY = 0;
+    let altX = 0, altY = 0;
     canvas.addEventListener(
         "touchstart",
         (e) => {
@@ -1073,30 +1067,29 @@ async function main() {
                 startY = e.touches[0].clientY;
                 down = 1;
             } else if (e.touches.length === 2) {
-                // console.log('beep')
                 carousel = false;
                 startX = e.touches[0].clientX;
                 altX = e.touches[1].clientX;
                 startY = e.touches[0].clientY;
                 altY = e.touches[1].clientY;
-                down = 1;
+                down = 2;  // 2本指でパン操作モード
             }
         },
         { passive: false },
     );
+
     canvas.addEventListener(
         "touchmove",
         (e) => {
             e.preventDefault();
-            if (e.touches.length === 1 && down) {
+            if (e.touches.length === 1 && down === 1) {
+                // 1本指: 回転
                 let inv = invert4(viewMatrix);
                 let dx = (4 * (e.touches[0].clientX - startX)) / innerWidth;
                 let dy = (4 * (e.touches[0].clientY - startY)) / innerHeight;
 
                 let d = 4;
                 inv = translate4(inv, 0, 0, d);
-                // inv = translate4(inv,  -x, -y, -z);
-                // inv = translate4(inv,  x, y, z);
                 inv = rotate4(inv, dx, 0, 1, 0);
                 inv = rotate4(inv, -dy, 1, 0, 0);
                 inv = translate4(inv, 0, 0, -d);
@@ -1106,38 +1099,42 @@ async function main() {
                 startX = e.touches[0].clientX;
                 startY = e.touches[0].clientY;
             } else if (e.touches.length === 2) {
-                // alert('beep')
-                const dtheta =
-                    Math.atan2(startY - altY, startX - altX) -
+                const newCenterX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+                const newCenterY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+                const oldCenterX = (startX + altX) / 2;
+                const oldCenterY = (startY + altY) / 2;
+                
+                const dx = newCenterX - oldCenterX;
+                const dy = newCenterY - oldCenterY;
+                
+                const oldDist = Math.hypot(startX - altX, startY - altY);
+                const newDist = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
+                const dscale = oldDist / newDist;
+                
+                const dtheta = Math.atan2(startY - altY, startX - altX) -
                     Math.atan2(
                         e.touches[0].clientY - e.touches[1].clientY,
-                        e.touches[0].clientX - e.touches[1].clientX,
+                        e.touches[0].clientX - e.touches[1].clientX
                     );
-                const dscale =
-                    Math.hypot(startX - altX, startY - altY) /
-                    Math.hypot(
-                        e.touches[0].clientX - e.touches[1].clientX,
-                        e.touches[0].clientY - e.touches[1].clientY,
-                    );
-                const dx =
-                    (e.touches[0].clientX +
-                        e.touches[1].clientX -
-                        (startX + altX)) /
-                    2;
-                const dy =
-                    (e.touches[0].clientY +
-                        e.touches[1].clientY -
-                        (startY + altY)) /
-                    2;
+
                 let inv = invert4(viewMatrix);
-                // inv = translate4(inv,  0, 0, d);
+                
+                // 回転
                 inv = rotate4(inv, dtheta, 0, 0, 1);
-
-                inv = translate4(inv, -dx / innerWidth, -dy / innerHeight, 0);
-
-                // let preY = inv[13];
+                
+                // パン操作の改善
+                inv = translate4(
+                    inv,
+                    (-2 * dx) / innerWidth,
+                    (2 * dy) / innerHeight,
+                    0
+                );
+                
+                // ズーム
                 inv = translate4(inv, 0, 0, 3 * (1 - dscale));
-                // inv[13] = preY;
 
                 viewMatrix = invert4(inv);
 
