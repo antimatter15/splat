@@ -2,6 +2,8 @@
 
 This is a WebGL implementation of a real-time renderer for [3D Gaussian Splatting for Real-Time Radiance Field Rendering](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/), a recently developed technique for taking a set of pictures and generating a photorealistic navigable 3D scene out of it. As it is essentially an extension of rendering point clouds, rendering scenes generated with this technique can be done very efficiently on ordinary graphics hardware- unlike prior comparable techniques such as NeRFs.
 
+> **Note:** For a more advanced Gaussian splatting renderer, check out [Spark](https://github.com/graphdeco-inria/gaussian-splatting-web) - a high-performance WebGPU-based renderer with improved visual quality and additional features.
+
 You can [try it out here](https://antimatter15.com/splat/).
 
 
