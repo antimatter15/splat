@@ -781,6 +781,7 @@ async function main() {
 
     const gl = canvas.getContext("webgl2", {
         antialias: false,
+        xrCompatible: true,
     });
 
     const vertexShader = gl.createShader(gl.VERTEX_SHADER);
@@ -1377,6 +1378,174 @@ async function main() {
     };
 
     frame();
+
+    // WebXR VR Support
+    let xrSession = null;
+    let xrRefSpace = null;
+    let isVRMode = false;
+    let initialViewMatrix = null;
+    let vrControllerState = {
+        moveSpeed: 0.05,
+        rotationAngle: 5 * Math.PI / 180, // 5 degrees in radians
+        rotationCooldown: 0,
+        deadzone: 0.1,
+    };
+
+    const vrButton = document.getElementById('vr-button');
+
+    // Check for WebXR support
+    if (navigator.xr) {
+        navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
+            if (supported) {
+                vrButton.style.display = 'block';
+                vrButton.addEventListener('click', onVRButtonClick);
+            }
+        });
+    }
+
+    async function onVRButtonClick() {
+        if (!xrSession) {
+            try {
+                xrSession = await navigator.xr.requestSession('immersive-vr', {
+                    requiredFeatures: ['local-floor']
+                });
+
+                await gl.makeXRCompatible();
+
+                const xrLayer = new XRWebGLLayer(xrSession, gl);
+                await xrSession.updateRenderState({ baseLayer: xrLayer });
+
+                xrRefSpace = await xrSession.requestReferenceSpace('local-floor');
+
+                initialViewMatrix = [...viewMatrix];
+                isVRMode = true;
+
+                vrButton.textContent = 'Exit VR';
+
+                xrSession.addEventListener('end', onSessionEnd);
+                xrSession.requestAnimationFrame(onXRFrame);
+            } catch (err) {
+                console.error('Failed to start VR session:', err);
+                alert('Failed to start VR session: ' + err.message);
+            }
+        } else {
+            xrSession.end();
+        }
+    }
+
+    function onSessionEnd() {
+        xrSession = null;
+        xrRefSpace = null;
+        isVRMode = false;
+        vrButton.textContent = 'Enter VR';
+
+        // Reset canvas size
+        resize();
+    }
+
+    function handleVRControllerInput(xrSession, refSpace) {
+        if (!xrSession || !xrSession.inputSources) return;
+
+        let inv = invert4(viewMatrix);
+        let hasInput = false;
+
+        for (const source of xrSession.inputSources) {
+            if (!source.gamepad) continue;
+
+            const gamepad = source.gamepad;
+            const handedness = source.handedness; // 'left' or 'right'
+
+            // Left controller: Movement (axes 2, 3)
+            if (handedness === 'left' && gamepad.axes.length >= 4) {
+                const axisX = Math.abs(gamepad.axes[2]) > vrControllerState.deadzone ? gamepad.axes[2] : 0;
+                const axisY = Math.abs(gamepad.axes[3]) > vrControllerState.deadzone ? gamepad.axes[3] : 0;
+
+                if (axisX !== 0 || axisY !== 0) {
+                    // Forward/backward and left/right movement
+                    inv = translate4(inv, axisX * vrControllerState.moveSpeed, 0, -axisY * vrControllerState.moveSpeed);
+                    hasInput = true;
+                }
+            }
+
+            // Right controller: Rotation (axes 2, 3)
+            if (handedness === 'right' && gamepad.axes.length >= 4) {
+                const axisX = Math.abs(gamepad.axes[2]) > vrControllerState.deadzone ? gamepad.axes[2] : 0;
+
+                if (axisX !== 0 && vrControllerState.rotationCooldown <= 0) {
+                    // Discrete 5-degree rotation
+                    const direction = axisX > 0 ? 1 : -1;
+                    inv = rotate4(inv, direction * vrControllerState.rotationAngle, 0, 1, 0);
+                    vrControllerState.rotationCooldown = 15; // Cooldown frames
+                    hasInput = true;
+                }
+
+                // A button (index 0): Reset position
+                if (gamepad.buttons[0] && gamepad.buttons[0].pressed) {
+                    if (initialViewMatrix) {
+                        viewMatrix = [...initialViewMatrix];
+                        return; // Early return to use reset matrix
+                    }
+                }
+            }
+        }
+
+        if (vrControllerState.rotationCooldown > 0) {
+            vrControllerState.rotationCooldown--;
+        }
+
+        if (hasInput) {
+            viewMatrix = invert4(inv);
+        }
+    }
+
+    function onXRFrame(time, xrFrame) {
+        if (!xrSession) return;
+
+        xrSession.requestAnimationFrame(onXRFrame);
+
+        const pose = xrFrame.getViewerPose(xrRefSpace);
+        if (!pose) return;
+
+        const layer = xrSession.renderState.baseLayer;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, layer.framebuffer);
+
+        // Handle controller input
+        handleVRControllerInput(xrSession, xrRefSpace);
+
+        // Clear before rendering all views
+        gl.clear(gl.COLOR_BUFFER_BIT);
+
+        // Render each eye
+        for (const view of pose.views) {
+            const viewport = layer.getViewport(view);
+            gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
+
+            // Get the view matrix from XR
+            const xrViewMatrix = view.transform.inverse.matrix;
+
+            // Combine XR view with our viewMatrix
+            const combinedViewMatrix = multiply4(xrViewMatrix, viewMatrix);
+
+            // Get projection matrix from XR
+            const xrProjectionMatrix = view.projectionMatrix;
+
+            // Calculate focal length from projection matrix
+            const focalX = xrProjectionMatrix[0] * viewport.width / 2;
+            const focalY = xrProjectionMatrix[5] * viewport.height / 2;
+
+            gl.uniform2fv(u_focal, new Float32Array([focalX, focalY]));
+            gl.uniform2fv(u_viewport, new Float32Array([viewport.width, viewport.height]));
+            gl.uniformMatrix4fv(u_projection, false, xrProjectionMatrix);
+            gl.uniformMatrix4fv(u_view, false, combinedViewMatrix);
+
+            const viewProj = multiply4(xrProjectionMatrix, combinedViewMatrix);
+            worker.postMessage({ view: viewProj });
+
+            if (vertexCount > 0) {
+                gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, vertexCount);
+            }
+        }
+    }
 
     const isPly = (splatData) =>
         splatData[0] == 112 &&
