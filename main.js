@@ -746,8 +746,8 @@ async function main() {
     const url = new URL(
         // "nike.splat",
         // location.href,
-        params.get("url") || "model.splat",
-        "https://raw.githubusercontent.com/Siyu062/splat/main/model.splat",
+        params.get("url") || "OperatingRoom.splat",
+        "https://raw.githubusercontent.com/Siyu062/splat/main/OperatingRoom.splat",
     );
     const req = await fetch(url, {
         mode: "cors", // no-cors, *cors, same-origin
@@ -874,7 +874,7 @@ async function main() {
                     type: "application/octet-stream",
                 });
                 const link = document.createElement("a");
-                link.download = "model.splat";
+                link.download = "OperatingRoom.splat";
                 link.href = URL.createObjectURL(blob);
                 document.body.appendChild(link);
                 link.click();
