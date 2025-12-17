@@ -493,21 +493,33 @@ function createWorker(self) {
             ushort: "getUint16",
             uchar: "getUint8",
         };
-        for (let prop of header
-            .slice(0, header_end_index)
-            .split("\n")
-            .filter((k) => k.startsWith("property "))) {
-            const [p, type, name] = prop.split(" ");
-            const arrayType = TYPE_MAP[type] || "getInt8";
-            types[name] = arrayType;
-            offsets[name] = row_offset;
-            row_offset += parseInt(arrayType.replace(/[^\d]/g, "")) / 8;
+        // Only process properties for vertex elements (skip camera data)
+        let inVertexElement = false;
+        for (let line of header.slice(0, header_end_index).split("\n")) {
+            if (line.startsWith("element vertex")) {
+                inVertexElement = true;
+                continue;
+            }
+            if (line.startsWith("element ")) {
+                inVertexElement = false;
+                continue;
+            }
+            if (line.startsWith("property ") && inVertexElement) {
+                const [p, type, name] = line.split(" ");
+                const arrayType = TYPE_MAP[type] || "getInt8";
+                types[name] = arrayType;
+                offsets[name] = row_offset;
+                row_offset += parseInt(arrayType.replace(/[^\d]/g, "")) / 8;
+            }
         }
         console.log("Bytes per row", row_offset, types, offsets);
 
+        // Calculate vertex data size and create DataView only for vertex data
+        const vertexDataSize = vertexCount * row_offset;
         let dataView = new DataView(
             inputBuffer,
             header_end_index + header_end.length,
+            vertexDataSize
         );
         let row = 0;
         const attrs = new Proxy(
