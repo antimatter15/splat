@@ -184,15 +184,6 @@ function getViewMatrix(camera) {
     ].flat();
     return camToWorld;
 }
-// function translate4(a, x, y, z) {
-//     return [
-//         ...a.slice(0, 12),
-//         a[0] * x + a[4] * y + a[8] * z + a[12],
-//         a[1] * x + a[5] * y + a[9] * z + a[13],
-//         a[2] * x + a[6] * y + a[10] * z + a[14],
-//         a[3] * x + a[7] * y + a[11] * z + a[15],
-//     ];
-// }
 
 function multiply4(a, b) {
     return [
@@ -1186,32 +1177,25 @@ async function main() {
             activeKeys.includes("ShiftLeft") ||
             activeKeys.includes("ShiftRight");
 
-        if (activeKeys.includes("ArrowUp")) {
-            if (shiftKey) {
-                inv = translate4(inv, 0, -0.03, 0);
-            } else {
-                inv = translate4(inv, 0, 0, 0.1);
-            }
-        }
-        if (activeKeys.includes("ArrowDown")) {
-            if (shiftKey) {
-                inv = translate4(inv, 0, 0.03, 0);
-            } else {
-                inv = translate4(inv, 0, 0, -0.1);
-            }
-        }
-        if (activeKeys.includes("ArrowLeft"))
-            inv = translate4(inv, -0.03, 0, 0);
-        //
-        if (activeKeys.includes("ArrowRight"))
-            inv = translate4(inv, 0.03, 0, 0);
-        // inv = rotate4(inv, 0.01, 0, 1, 0);
-        if (activeKeys.includes("KeyA")) inv = rotate4(inv, -0.01, 0, 1, 0);
-        if (activeKeys.includes("KeyD")) inv = rotate4(inv, 0.01, 0, 1, 0);
-        if (activeKeys.includes("KeyQ")) inv = rotate4(inv, 0.01, 0, 0, 1);
-        if (activeKeys.includes("KeyE")) inv = rotate4(inv, -0.01, 0, 0, 1);
-        if (activeKeys.includes("KeyW")) inv = rotate4(inv, 0.005, 1, 0, 0);
-        if (activeKeys.includes("KeyS")) inv = rotate4(inv, -0.005, 1, 0, 0);
+        // WASD - First person movement
+        if (activeKeys.includes("KeyW")) inv = translate4(inv, 0, 0, 0.1);  // Forward
+        if (activeKeys.includes("KeyS")) inv = translate4(inv, 0, 0, -0.1); // Backward
+        if (activeKeys.includes("KeyA")) inv = translate4(inv, -0.03, 0, 0); // Strafe left
+        if (activeKeys.includes("KeyD")) inv = translate4(inv, 0.03, 0, 0);  // Strafe right
+        
+        // Space/Shift - Up/Down movement
+        if (activeKeys.includes("Space")) inv = translate4(inv, 0, -0.03, 0); // Up
+        if (shiftKey) inv = translate4(inv, 0, 0.03, 0); // Down
+        
+        // Arrow keys - Camera rotation (look around)
+        if (activeKeys.includes("ArrowLeft")) inv = rotate4(inv, -0.01, 0, 1, 0);  // Look left
+        if (activeKeys.includes("ArrowRight")) inv = rotate4(inv, 0.01, 0, 1, 0);  // Look right
+        if (activeKeys.includes("ArrowUp")) inv = rotate4(inv, 0.01, 1, 0, 0);     // Look up
+        if (activeKeys.includes("ArrowDown")) inv = rotate4(inv, -0.01, 1, 0, 0);  // Look down
+        
+        // Q/E - Roll camera (optional) modified from original inverted roll. 
+        if (activeKeys.includes("KeyE")) inv = rotate4(inv, 0.01, 0, 0, 1);
+        if (activeKeys.includes("KeyQ")) inv = rotate4(inv, -0.01, 0, 0, 1);
 
         const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
         let isJumping = activeKeys.includes("Space");
@@ -1481,4 +1465,13 @@ async function main() {
 main().catch((err) => {
     document.getElementById("spinner").style.display = "none";
     document.getElementById("message").innerText = err.toString();
+});
+
+window.addEventListener('mousedown', () => {
+    window.focus();
+});
+
+// This helps when the mouse enters the iframe
+window.addEventListener('mouseenter', () => {
+    window.focus();
 });

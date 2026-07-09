@@ -12,8 +12,9 @@ https://github.com/antimatter15/splat/assets/30054/878d5d34-e0a7-4336-85df-111ff
 
 
 
-## controls
 
+## controls
+This was the main feature of this fork, just game-like controls. 
 movement (arrow keys)
 
 - left/right arrow keys to strafe side to side
