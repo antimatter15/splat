@@ -323,6 +323,11 @@ function createWorker(self) {
         var newExp;
         if (exp == 0) {
             newExp = 0;
+        } else if (exp < 103) {
+            // Values below the smallest half subnormal truncate to zero.
+            // Avoid shifts of 32 or more, which wrap around in JavaScript.
+            newExp = 0;
+            frac = 0;
         } else if (exp < 113) {
             newExp = 0;
             frac |= 0x00800000;
